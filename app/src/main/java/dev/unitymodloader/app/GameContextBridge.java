@@ -35,7 +35,6 @@ final class GameContextBridge extends ContextWrapper {
         bridgedApplicationInfo.dataDir = hostInfo.dataDir;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             bridgedApplicationInfo.deviceProtectedDataDir = hostInfo.deviceProtectedDataDir;
-            bridgedApplicationInfo.credentialProtectedDataDir = hostInfo.credentialProtectedDataDir;
         }
     }
 
