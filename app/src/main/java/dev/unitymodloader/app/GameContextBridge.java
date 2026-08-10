@@ -22,10 +22,12 @@ final class GameContextBridge extends ContextWrapper {
     GameContextBridge(Context gameContext, Context hostContext) {
         super(gameContext);
         this.gameContext = gameContext;
-        this.hostContext = hostContext;
+
+        Context appContext = hostContext.getApplicationContext();
+        this.hostContext = appContext != null ? appContext : hostContext;
 
         ApplicationInfo gameInfo = gameContext.getApplicationInfo();
-        ApplicationInfo hostInfo = hostContext.getApplicationInfo();
+        ApplicationInfo hostInfo = this.hostContext.getApplicationInfo();
         bridgedApplicationInfo = new ApplicationInfo(gameInfo);
 
         // The loader cannot write to another package's /data/user/... sandbox.
