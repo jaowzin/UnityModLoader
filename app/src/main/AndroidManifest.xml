@@ -4,7 +4,6 @@
 
     <application
         android:allowBackup="true"
-        android:extractNativeLibs="true"
         android:label="Unity Mod Loader"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
