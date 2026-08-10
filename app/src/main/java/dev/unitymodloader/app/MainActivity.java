@@ -51,7 +51,7 @@ public final class MainActivity extends Activity {
         root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("V0.3 — perfis, backends e plugins");
+        subtitle.setText("V0.4 — host IL2CPP + plugins nativos");
         subtitle.setGravity(Gravity.CENTER_HORIZONTAL);
         subtitle.setPadding(0, dp(8), 0, dp(16));
         root.addView(subtitle);
@@ -131,18 +131,27 @@ public final class MainActivity extends Activity {
                 : selectedBackend.prepare(game, GameProfileManager.root(this, game));
 
         List<File> plugins = PluginManager.list(this, game);
+        int nativePluginCount = 0;
+        for (File plugin : plugins) {
+            if (plugin.getName().toLowerCase(Locale.ROOT).endsWith(".so")) nativePluginCount++;
+        }
 
         StringBuilder paths = new StringBuilder();
         for (String path : game.getApkPaths()) {
             paths.append("\n• ").append(new File(path).getName());
         }
 
+        String runtimeNote = result.getBackend() == DetectionResult.Backend.UNITY_IL2CPP
+                ? "V0.4: .so pode ser carregado no processo Unity. .dll C# ainda precisa do runtime gerenciado."
+                : "O host em processo desta versão está focado em IL2CPP.";
+
         status.setText(String.format(Locale.ROOT,
                 "%s\n%s\n\n" +
                 "Backend: %s\n" +
                 "Estado: %s\n" +
                 "Perfil local: %s\n" +
-                "Plugins importados: %d\n\n" +
+                "Plugins importados: %d (%d nativo(s) .so)\n\n" +
+                "%s\n\n" +
                 "libunity.so: %s\n" +
                 "libil2cpp.so: %s\n" +
                 "global-metadata.dat: %s\n" +
@@ -155,6 +164,8 @@ public final class MainActivity extends Activity {
                 backendStatus.getMessage(),
                 profileOk ? "preparado" : "erro",
                 plugins.size(),
+                nativePluginCount,
+                runtimeNote,
                 yesNo(result.hasLibUnity()),
                 yesNo(result.hasLibIl2Cpp()),
                 yesNo(result.hasGlobalMetadata()),
@@ -177,7 +188,7 @@ public final class MainActivity extends Activity {
         actionsContainer.addView(prepare);
 
         Button importPlugin = new Button(this);
-        importPlugin.setText("Importar plugin / mod");
+        importPlugin.setText("Importar plugin / mod (.so ou .dll)");
         importPlugin.setEnabled(selectedBackend != null);
         importPlugin.setOnClickListener(v -> choosePlugin());
         actionsContainer.addView(importPlugin);
@@ -187,9 +198,16 @@ public final class MainActivity extends Activity {
         listPlugins.setOnClickListener(v -> showPlugins());
         actionsContainer.addView(listPlugins);
 
+        if (selectedGame.getDetection().getBackend() == DetectionResult.Backend.UNITY_IL2CPP) {
+            Button hostedLaunch = new Button(this);
+            hostedLaunch.setText("Abrir com Loader IL2CPP (experimental)");
+            hostedLaunch.setOnClickListener(v -> launchHostedGame());
+            actionsContainer.addView(hostedLaunch);
+        }
+
         Button launch = new Button(this);
-        launch.setText("Abrir jogo");
-        launch.setOnClickListener(v -> launchSelectedGame());
+        launch.setText("Abrir jogo normal (sem mods)");
+        launch.setOnClickListener(v -> launchSelectedGameNormally());
         actionsContainer.addView(launch);
     }
 
@@ -246,12 +264,33 @@ public final class MainActivity extends Activity {
 
         StringBuilder text = new StringBuilder("Plugins de ").append(selectedGame.getLabel()).append(":");
         for (File plugin : plugins) {
-            text.append("\n• ").append(plugin.getName());
+            String lower = plugin.getName().toLowerCase(Locale.ROOT);
+            String type = lower.endsWith(".so") ? "nativo/ativo na V0.4"
+                    : lower.endsWith(".dll") ? "C#/aguardando runtime"
+                    : "arquivo";
+            text.append("\n• ").append(plugin.getName()).append(" — ").append(type);
         }
         status.append("\n\n" + text);
     }
 
-    private void launchSelectedGame() {
+    private void launchHostedGame() {
+        if (selectedGame == null) return;
+        if (selectedGame.getDetection().getBackend() != DetectionResult.Backend.UNITY_IL2CPP) {
+            Toast.makeText(this, "O host V0.4 está habilitado apenas para IL2CPP", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        if (!GameProfileManager.prepare(this, selectedGame, selectedBackend)) {
+            Toast.makeText(this, "Não foi possível preparar o perfil do jogo", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        Intent host = new Intent(this, GameHostActivity.class);
+        host.putExtra(GameHostActivity.EXTRA_TARGET_PACKAGE, selectedGame.getPackageName());
+        startActivity(host);
+    }
+
+    private void launchSelectedGameNormally() {
         if (selectedGame == null) return;
         Intent launch = getPackageManager().getLaunchIntentForPackage(selectedGame.getPackageName());
         if (launch == null) {
