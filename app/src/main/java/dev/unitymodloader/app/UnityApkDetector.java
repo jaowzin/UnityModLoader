@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.zip.ZipEntry;
@@ -14,34 +15,44 @@ public final class UnityApkDetector {
     private UnityApkDetector() {}
 
     public static DetectionResult inspect(File apk) throws IOException {
+        List<File> files = new ArrayList<>();
+        files.add(apk);
+        return inspect(files);
+    }
+
+    public static DetectionResult inspect(List<File> apks) throws IOException {
         boolean libUnity = false;
         boolean libIl2Cpp = false;
         boolean globalMetadata = false;
         int managedDlls = 0;
         Set<String> abis = new LinkedHashSet<>();
 
-        try (ZipFile zip = new ZipFile(apk)) {
-            Enumeration<? extends ZipEntry> entries = zip.entries();
-            while (entries.hasMoreElements()) {
-                String name = entries.nextElement().getName();
-                String lower = name.toLowerCase(Locale.ROOT);
+        for (File apk : apks) {
+            if (apk == null || !apk.isFile()) continue;
 
-                if (lower.matches("lib/[^/]+/libunity\\.so")) {
-                    libUnity = true;
-                    addAbi(name, abis);
-                }
+            try (ZipFile zip = new ZipFile(apk)) {
+                Enumeration<? extends ZipEntry> entries = zip.entries();
+                while (entries.hasMoreElements()) {
+                    String name = entries.nextElement().getName();
+                    String lower = name.toLowerCase(Locale.ROOT);
 
-                if (lower.matches("lib/[^/]+/libil2cpp\\.so")) {
-                    libIl2Cpp = true;
-                    addAbi(name, abis);
-                }
+                    if (lower.matches("lib/[^/]+/libunity\\.so")) {
+                        libUnity = true;
+                        addAbi(name, abis);
+                    }
 
-                if (lower.endsWith("/metadata/global-metadata.dat")) {
-                    globalMetadata = true;
-                }
+                    if (lower.matches("lib/[^/]+/libil2cpp\\.so")) {
+                        libIl2Cpp = true;
+                        addAbi(name, abis);
+                    }
 
-                if (lower.contains("/managed/") && lower.endsWith(".dll")) {
-                    managedDlls++;
+                    if (lower.endsWith("/metadata/global-metadata.dat")) {
+                        globalMetadata = true;
+                    }
+
+                    if (lower.contains("/managed/") && lower.endsWith(".dll")) {
+                        managedDlls++;
+                    }
                 }
             }
         }
