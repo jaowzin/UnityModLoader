@@ -22,6 +22,8 @@ public final class Il2CppBackend implements ModBackend {
         if (!game.getDetection().hasLibIl2Cpp()) {
             return BackendStatus.blocked("libil2cpp.so não foi encontrada nos APKs instalados.");
         }
-        return BackendStatus.ready("Perfil IL2CPP preparado. Runtime de plugins será conectado a este backend.");
+        return BackendStatus.ready(
+                "Host IL2CPP experimental disponível. Plugins nativos .so são carregados no processo Unity; .dll C# ainda aguardam o runtime gerenciado."
+        );
     }
 }
