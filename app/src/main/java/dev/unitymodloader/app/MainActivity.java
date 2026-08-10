@@ -1,35 +1,32 @@
 package dev.unitymodloader.app;
 
 import android.app.Activity;
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
-import android.provider.OpenableColumns;
-import android.database.Cursor;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
+import java.util.List;
 import java.util.Locale;
 
 public final class MainActivity extends Activity {
-    private static final int PICK_APK = 1001;
-
+    private LinearLayout gamesContainer;
     private TextView status;
-    private Button prepareButton;
-    private DetectionResult lastResult;
+    private ProgressBar progress;
+    private Button rescanButton;
+    private InstalledUnityGame selectedGame;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(buildUi());
+        scanInstalledGames();
     }
 
     private View buildUi() {
@@ -43,136 +40,125 @@ public final class MainActivity extends Activity {
         title.setText("Unity Mod Loader");
         title.setTextSize(26f);
         title.setGravity(Gravity.CENTER_HORIZONTAL);
-        root.addView(title, new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-        ));
+        root.addView(title);
 
         TextView subtitle = new TextView(this);
-        subtitle.setText("V0.1 — detector Unity IL2CPP / Mono");
+        subtitle.setText("V0.2 — jogos Unity instalados");
         subtitle.setGravity(Gravity.CENTER_HORIZONTAL);
-        subtitle.setPadding(0, dp(8), 0, dp(20));
+        subtitle.setPadding(0, dp(8), 0, dp(16));
         root.addView(subtitle);
 
-        Button pick = new Button(this);
-        pick.setText("Selecionar APK Unity");
-        pick.setOnClickListener(v -> chooseApk());
-        root.addView(pick);
+        rescanButton = new Button(this);
+        rescanButton.setText("Procurar jogos Unity instalados");
+        rescanButton.setOnClickListener(v -> scanInstalledGames());
+        root.addView(rescanButton);
 
-        prepareButton = new Button(this);
-        prepareButton.setText("Preparar pasta de mods");
-        prepareButton.setEnabled(false);
-        prepareButton.setOnClickListener(v -> prepareModsDirectory());
-        root.addView(prepareButton);
+        progress = new ProgressBar(this);
+        progress.setIndeterminate(true);
+        progress.setVisibility(View.GONE);
+        root.addView(progress);
 
         status = new TextView(this);
-        status.setText("Core nativo: " + NativeBridge.coreVersion() +
-                "\n\nSelecione um APK para analisar.");
-        status.setTextSize(16f);
-        status.setPadding(0, dp(20), 0, dp(20));
+        status.setText("Core nativo: " + NativeBridge.coreVersion());
+        status.setTextSize(15f);
+        status.setPadding(0, dp(16), 0, dp(10));
         root.addView(status);
+
+        gamesContainer = new LinearLayout(this);
+        gamesContainer.setOrientation(LinearLayout.VERTICAL);
+        root.addView(gamesContainer);
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(root);
         return scroll;
     }
 
-    private void chooseApk() {
-        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-        intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("application/vnd.android.package-archive");
-        startActivityForResult(intent, PICK_APK);
+    private void scanInstalledGames() {
+        selectedGame = null;
+        gamesContainer.removeAllViews();
+        progress.setVisibility(View.VISIBLE);
+        rescanButton.setEnabled(false);
+        status.setText("Analisando apps instalados, incluindo APK base e split APKs...");
+
+        new Thread(() -> {
+            List<InstalledUnityGame> games = InstalledUnityScanner.scan(this);
+            runOnUiThread(() -> renderGames(games));
+        }, "unity-app-scanner").start();
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode != PICK_APK || resultCode != RESULT_OK || data == null) {
+    private void renderGames(List<InstalledUnityGame> games) {
+        progress.setVisibility(View.GONE);
+        rescanButton.setEnabled(true);
+
+        if (games.isEmpty()) {
+            status.setText("Nenhum aplicativo Unity visível foi encontrado.");
             return;
         }
 
-        Uri uri = data.getData();
-        if (uri == null) return;
+        status.setText("Encontrados " + games.size() + " app(s) Unity. Toque em um para ver os detalhes.");
 
-        try {
-            String name = queryName(uri);
-            File selectedApk = new File(getCacheDir(), "selected-game.apk");
-            copyUriToFile(uri, selectedApk);
-            lastResult = UnityApkDetector.inspect(selectedApk);
-            renderResult(name, lastResult);
-            prepareButton.setEnabled(lastResult.isUnity());
-        } catch (Exception e) {
-            prepareButton.setEnabled(false);
-            status.setText("Erro ao analisar APK:\n" + e.getClass().getSimpleName() + ": " + e.getMessage());
+        for (InstalledUnityGame game : games) {
+            Button item = new Button(this);
+            item.setAllCaps(false);
+            item.setText(game.getLabel() + "\n" + game.getPackageName() + " • " + backendName(game.getDetection()));
+            item.setOnClickListener(v -> showGame(game));
+            gamesContainer.addView(item);
         }
     }
 
-    private void renderResult(String fileName, DetectionResult result) {
-        String backend;
-        switch (result.getBackend()) {
-            case UNITY_IL2CPP: backend = "Unity IL2CPP"; break;
-            case UNITY_MONO: backend = "Unity Mono"; break;
-            case UNITY_UNKNOWN: backend = "Unity (backend ainda não identificado)"; break;
-            default: backend = "Não parece ser Unity";
+    private void showGame(InstalledUnityGame game) {
+        selectedGame = game;
+        DetectionResult result = game.getDetection();
+
+        StringBuilder paths = new StringBuilder();
+        for (String path : game.getApkPaths()) {
+            paths.append("\n• ").append(new File(path).getName());
         }
 
         status.setText(String.format(Locale.ROOT,
-                "Arquivo: %s\n" +
-                "Resultado: %s\n\n" +
+                "%s\n%s\n\n" +
+                "Backend: %s\n" +
                 "libunity.so: %s\n" +
                 "libil2cpp.so: %s\n" +
                 "global-metadata.dat: %s\n" +
                 "DLLs Managed: %d\n" +
-                "Arquiteturas: %s\n\n" +
-                "Próximo backend planejado: carregamento modular IL2CPP/Mono.",
-                fileName,
-                backend,
+                "Arquiteturas: %s\n" +
+                "APKs instalados: %d%s",
+                game.getLabel(),
+                game.getPackageName(),
+                backendName(result),
                 yesNo(result.hasLibUnity()),
                 yesNo(result.hasLibIl2Cpp()),
                 yesNo(result.hasGlobalMetadata()),
                 result.getManagedDllCount(),
-                result.getArchitectures().isEmpty() ? "não detectadas" : String.join(", ", result.getArchitectures())
+                result.getArchitectures().isEmpty() ? "não detectadas" : String.join(", ", result.getArchitectures()),
+                game.getApkPaths().size(),
+                paths
         ));
+
+        prepareModsDirectory(game);
     }
 
-    private void prepareModsDirectory() {
-        if (lastResult == null || !lastResult.isUnity()) return;
-
-        File base = new File(getExternalFilesDir(null), "mods/selected-game");
+    private void prepareModsDirectory(InstalledUnityGame game) {
+        File base = new File(getExternalFilesDir(null), "mods/" + game.getPackageName());
         File plugins = new File(base, "plugins");
         File config = new File(base, "config");
 
-        boolean ok = plugins.mkdirs() | plugins.isDirectory();
-        ok &= config.mkdirs() | config.isDirectory();
+        boolean ok = (plugins.mkdirs() || plugins.isDirectory()) &&
+                     (config.mkdirs() || config.isDirectory());
 
-        if (ok) {
-            Toast.makeText(this, "Pastas de mods preparadas", Toast.LENGTH_SHORT).show();
-            status.append("\n\nMods: " + base.getAbsolutePath());
-        } else {
-            Toast.makeText(this, "Não foi possível criar as pastas", Toast.LENGTH_LONG).show();
+        if (!ok) {
+            Toast.makeText(this, "Não foi possível preparar a pasta do jogo", Toast.LENGTH_SHORT).show();
         }
     }
 
-    private void copyUriToFile(Uri uri, File out) throws Exception {
-        try (InputStream in = getContentResolver().openInputStream(uri);
-             FileOutputStream fos = new FileOutputStream(out)) {
-            if (in == null) throw new IllegalStateException("Não foi possível abrir o APK");
-            byte[] buffer = new byte[64 * 1024];
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                fos.write(buffer, 0, read);
-            }
+    private static String backendName(DetectionResult result) {
+        switch (result.getBackend()) {
+            case UNITY_IL2CPP: return "Unity IL2CPP";
+            case UNITY_MONO: return "Unity Mono";
+            case UNITY_UNKNOWN: return "Unity";
+            default: return "Não Unity";
         }
-    }
-
-    private String queryName(Uri uri) {
-        try (Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
-            if (cursor != null && cursor.moveToFirst()) {
-                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
-                if (idx >= 0) return cursor.getString(idx);
-            }
-        }
-        return "game.apk";
     }
 
     private static String yesNo(boolean value) {
