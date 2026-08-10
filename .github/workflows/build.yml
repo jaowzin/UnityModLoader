@@ -5,6 +5,9 @@ on:
   push:
     branches: [ "main" ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,9 +43,28 @@ jobs:
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
 
-      - name: Upload APK
+      - name: Prepare direct APK
+        run: |
+          APK=$(find app/build/outputs/apk/debug -type f -name "*.apk" | head -n 1)
+          test -n "$APK"
+          cp "$APK" UnityModLoader-latest.apk
+
+      - name: Upload Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: UnityModLoader-debug
-          path: app/build/outputs/apk/debug/*.apk
+          path: UnityModLoader-latest.apk
           if-no-files-found: error
+
+      - name: Publish APK directly in Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest UnityModLoader-latest.apk --clobber
+          else
+            gh release create latest UnityModLoader-latest.apk \
+              --target "$GITHUB_SHA" \
+              --title "Unity Mod Loader - Latest" \
+              --notes "Build automática mais recente da branch main. Baixe UnityModLoader-latest.apk diretamente."
+          fi
