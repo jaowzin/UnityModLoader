@@ -10,12 +10,14 @@ public final class NativeBridge {
     public static native String coreVersion();
 
     /**
-     * Preloads the target libil2cpp.so by absolute nativeLibraryDir and arms the
-     * Mamo Ball guest bootstrap before UnityPlayer starts.
+     * Diagnostic for Mamo Ball 4.6.15: preload target IL2CPP and redirect the
+     * 20% authorization stage to SendInitialRequests (the 50% stage).
      */
-    public static native String prepareMamoBallBootstrap(String nativeLibraryDir);
+    public static native String prepareMamoBallAuthDiagnostic(String nativeLibraryDir);
+    public static native String setMamoBallAuthDiagnostic(boolean enabled);
 
-    /** Routes the empty-token LoginFragment directly to silent guest login. */
+    /** Legacy guest bootstrap retained for comparison/diagnostics. */
+    public static native String prepareMamoBallBootstrap(String nativeLibraryDir);
     public static native String setMamoBallGuestBootstrap(boolean enabled);
 
     /** Applies/restores the verified Mamo Ball 4.6.15 super-kick patch. */
@@ -24,10 +26,7 @@ public final class NativeBridge {
     /** Applies/restores the verified Mamo Ball 4.6.15 2x movement-speed patch. */
     public static native String setMamoBallSuperSpeed(boolean enabled);
 
-    /**
-     * Legacy declaration kept only so the old Fire Zone overlay source remains
-     * buildable while the project transitions targets. It is not used by Mamo Ball.
-     */
+    /** Legacy declaration; Fire Zone ESP is not used by Mamo Ball. */
     public static native float[] getFireZoneEspTargets();
 
     /** Loads every .so plugin in the supplied directory with RTLD_GLOBAL. */
