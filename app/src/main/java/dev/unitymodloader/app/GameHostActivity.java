@@ -37,6 +37,7 @@ import java.util.List;
  */
 public final class GameHostActivity extends Activity {
     public static final String EXTRA_TARGET_PACKAGE = "target_package";
+    public static final String EXTRA_ESP_HOLOGRAM = "esp_hologram";
     private static final String TAG = "UML.GameHost";
 
     private static final String FIRE_ZONE_PACKAGE = "com.sfcgs.gun.terrorist.shooting.missions";
@@ -52,6 +53,7 @@ public final class GameHostActivity extends Activity {
     private GameContextBridge bridge;
     private Object unityPlayer;
     private View unityView;
+    private EspOverlayView espOverlayView;
     private String targetPackage;
     private TextView bootStatus;
 
@@ -138,7 +140,23 @@ public final class GameHostActivity extends Activity {
 
         unityView.setFocusableInTouchMode(true);
         unityView.requestFocus();
-        setContentView(unityView);
+
+        FrameLayout hostedRoot = new FrameLayout(this);
+        hostedRoot.addView(unityView, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT));
+
+        boolean espEnabled = FIRE_ZONE_PACKAGE.equals(targetPackage)
+                && getIntent().getBooleanExtra(EXTRA_ESP_HOLOGRAM, false);
+        if (espEnabled) {
+            espOverlayView = new EspOverlayView(this);
+            hostedRoot.addView(espOverlayView, new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.MATCH_PARENT,
+                    FrameLayout.LayoutParams.MATCH_PARENT));
+            Log.i(TAG, "Fire Zone hologram ESP overlay enabled");
+        }
+
+        setContentView(hostedRoot);
 
         File pluginDir = new File(
                 getExternalFilesDir(null),
@@ -397,6 +415,7 @@ public final class GameHostActivity extends Activity {
                 invokeUnity("shutdown", new Class<?>[0]);
             }
         }
+        espOverlayView = null;
         unityPlayer = null;
         unityView = null;
         super.onDestroy();
