@@ -101,7 +101,7 @@ public final class MainActivity extends Activity {
         title.setPadding(0, dp(4), 0, 0);
         root.addView(title);
 
-        TextView subtitle = text("Loader IL2CPP dedicado • v0.7.0", 14f, MUTED, Typeface.NORMAL);
+        TextView subtitle = text("Loader IL2CPP dedicado • v0.7.2", 14f, MUTED, Typeface.NORMAL);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
@@ -176,7 +176,7 @@ public final class MainActivity extends Activity {
                 true);
 
         TextView safety = text(
-                "As assinaturas ARM64 são verificadas antes de cada patch. Se o jogo atualizar, o mod recusa aplicar em endereço incompatível.",
+                "Bootstrap CTF: se o loader não tiver o token privado do app original, o LoginFragment entra automaticamente como Guest. As assinaturas ARM64 são verificadas antes dos patches.",
                 12f, MUTED, Typeface.NORMAL);
         safety.setPadding(0, dp(18), 0, 0);
         root.addView(safety);
@@ -353,12 +353,43 @@ public final class MainActivity extends Activity {
             return;
         }
 
+        // Must be armed before the hosted Unity reaches SplashActivity/LoginFragment.
+        startGuestBootstrapWatcher();
         startPatchWatcher("Kick", superKick, true);
         startPatchWatcher("Speed", superSpeed, false);
 
         Intent host = new Intent(this, GameHostActivity.class);
         host.putExtra(GameHostActivity.EXTRA_TARGET_PACKAGE, TARGET_PACKAGE);
         startActivity(host);
+    }
+
+    private void startGuestBootstrapWatcher() {
+        new Thread(() -> {
+            String last = "";
+            for (int attempt = 0; attempt < 120; attempt++) {
+                try {
+                    last = NativeBridge.setMamoBallGuestBootstrap(true);
+                    Log.i(TAG, "Guest bootstrap: " + last);
+                    if (last.startsWith("OK:") || last.startsWith("ERROR:")) {
+                        final String result = last;
+                        if (result.startsWith("ERROR:")) {
+                            runOnUiThread(() -> Toast.makeText(
+                                    this, result, Toast.LENGTH_LONG).show());
+                        }
+                        return;
+                    }
+                    Thread.sleep(80L);
+                } catch (Throwable error) {
+                    Log.e(TAG, "Guest bootstrap watcher failed", error);
+                    return;
+                }
+            }
+
+            final String result = last.isEmpty()
+                    ? "ERROR: bootstrap não encontrou libil2cpp a tempo"
+                    : last;
+            runOnUiThread(() -> Toast.makeText(this, result, Toast.LENGTH_LONG).show());
+        }, "mamoball-guest-bootstrap").start();
     }
 
     private void startPatchWatcher(String label, boolean enabled, boolean kick) {
