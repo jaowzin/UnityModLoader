@@ -107,6 +107,12 @@ public final class GameHostActivity extends Activity {
         );
         bridge = new GameContextBridge(installedGameContext, this);
 
+        Log.i(TAG, "Target context paths: package=" + getPackageName()
+                + "; code=" + getPackageCodePath()
+                + "; resources=" + getPackageResourcePath()
+                + "; sourceDir=" + getApplicationInfo().sourceDir
+                + "; dataDir=" + getApplicationInfo().dataDir);
+
         ClassLoader gameLoader = installedGameContext.getClassLoader();
         if (gameLoader == null) {
             throw new IllegalStateException("ClassLoader do jogo é nulo");
@@ -237,7 +243,7 @@ public final class GameHostActivity extends Activity {
         constructor.setAccessible(true);
 
         // The real Fire Zone UnityPlayerActivity passes the Activity itself as Context.
-        // Our Activity exposes the target game's resources/classloader through overrides.
+        // Our Activity exposes the target game's resources/classloader/APK path through overrides.
         Object value = constructor.newInstance(this, lifecycleProxy);
         Log.i(TAG, "Unity 6 Activity constructor selected: " + constructor);
         return value;
@@ -485,6 +491,16 @@ public final class GameHostActivity extends Activity {
     @Override
     public String getPackageName() {
         return bridge != null ? bridge.getPackageName() : super.getPackageName();
+    }
+
+    @Override
+    public String getPackageCodePath() {
+        return bridge != null ? bridge.getPackageCodePath() : super.getPackageCodePath();
+    }
+
+    @Override
+    public String getPackageResourcePath() {
+        return bridge != null ? bridge.getPackageResourcePath() : super.getPackageResourcePath();
     }
 
     @Override
