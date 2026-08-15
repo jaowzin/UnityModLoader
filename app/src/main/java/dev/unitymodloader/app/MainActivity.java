@@ -33,6 +33,7 @@ public final class MainActivity extends Activity {
     private static final String PREFS = "firezone_mod_prefs";
     private static final String KEY_INFINITE_AMMO = "infinite_ammo";
     private static final String KEY_INFINITE_COINS = "infinite_coins";
+    private static final String KEY_ESP_HOLOGRAM = "esp_hologram";
 
     private static final int BG = Color.rgb(8, 11, 18);
     private static final int CARD = Color.rgb(18, 24, 35);
@@ -50,6 +51,7 @@ public final class MainActivity extends Activity {
     private ProgressBar progress;
     private Switch infiniteAmmoSwitch;
     private Switch infiniteCoinsSwitch;
+    private Switch espHologramSwitch;
     private Button launchModded;
     private Button launchClean;
     private Button recheck;
@@ -70,10 +72,13 @@ public final class MainActivity extends Activity {
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         infiniteAmmoSwitch.setChecked(prefs.getBoolean(KEY_INFINITE_AMMO, true));
         infiniteCoinsSwitch.setChecked(prefs.getBoolean(KEY_INFINITE_COINS, true));
+        espHologramSwitch.setChecked(prefs.getBoolean(KEY_ESP_HOLOGRAM, true));
         infiniteAmmoSwitch.setOnCheckedChangeListener((buttonView, checked) ->
                 prefs.edit().putBoolean(KEY_INFINITE_AMMO, checked).apply());
         infiniteCoinsSwitch.setOnCheckedChangeListener((buttonView, checked) ->
                 prefs.edit().putBoolean(KEY_INFINITE_COINS, checked).apply());
+        espHologramSwitch.setOnCheckedChangeListener((buttonView, checked) ->
+                prefs.edit().putBoolean(KEY_ESP_HOLOGRAM, checked).apply());
 
         scanTarget();
     }
@@ -99,7 +104,7 @@ public final class MainActivity extends Activity {
         title.setPadding(0, dp(4), 0, 0);
         root.addView(title);
 
-        TextView subtitle = text("Loader IL2CPP dedicado • build 0.6.1", 14f, MUTED, Typeface.NORMAL);
+        TextView subtitle = text("Loader IL2CPP dedicado • build 0.6.2", 14f, MUTED, Typeface.NORMAL);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
@@ -171,6 +176,13 @@ public final class MainActivity extends Activity {
                 "Moedas infinitas",
                 "Mostra 999.999 moedas e bloqueia gravações enquanto ativo.",
                 "Prefs.CurrentCash • getter 0x11605C0 • setter 0x11605FC",
+                true);
+
+        espHologramSwitch = addModRow(
+                modCard,
+                "ESP holograma",
+                "Destaca inimigos atrás de paredes com caixa, esqueleto e vida.",
+                "AI[] • Camera.WorldToScreenPoint • overlay through-wall",
                 true);
 
         launchModded = button("INICIAR COM MODS", true);
@@ -326,9 +338,11 @@ public final class MainActivity extends Activity {
 
         boolean infiniteAmmo = infiniteAmmoSwitch.isChecked();
         boolean infiniteCoins = infiniteCoinsSwitch.isChecked();
+        boolean espHologram = espHologramSwitch.isChecked();
         getSharedPreferences(PREFS, MODE_PRIVATE).edit()
                 .putBoolean(KEY_INFINITE_AMMO, infiniteAmmo)
                 .putBoolean(KEY_INFINITE_COINS, infiniteCoins)
+                .putBoolean(KEY_ESP_HOLOGRAM, espHologram)
                 .apply();
 
         if (!GameProfileManager.prepare(this, targetGame, targetBackend)) {
@@ -341,6 +355,7 @@ public final class MainActivity extends Activity {
 
         Intent host = new Intent(this, GameHostActivity.class);
         host.putExtra(GameHostActivity.EXTRA_TARGET_PACKAGE, TARGET_PACKAGE);
+        host.putExtra(GameHostActivity.EXTRA_ESP_HOLOGRAM, espHologram);
         startActivity(host);
     }
 
