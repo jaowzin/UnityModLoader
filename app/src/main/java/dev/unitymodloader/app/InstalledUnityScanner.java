@@ -9,12 +9,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-/**
- * Dedicated target scanner for the Fire Zone CTF build.
- * We intentionally do not enumerate every installed application anymore.
- */
+/** Dedicated target scanner for the authorized Mamo Ball CTF build. */
 public final class InstalledUnityScanner {
-    public static final String TARGET_PACKAGE = "com.sfcgs.gun.terrorist.shooting.missions";
+    public static final String TARGET_PACKAGE = "com.alberun.mamoball";
 
     private InstalledUnityScanner() {}
 
@@ -22,7 +19,6 @@ public final class InstalledUnityScanner {
         PackageManager pm = context.getPackageManager();
 
         try {
-            // Deprecated overload is deliberate: it works on the full minSdk range.
             @SuppressWarnings("deprecation")
             ApplicationInfo app = pm.getApplicationInfo(TARGET_PACKAGE, 0);
 
@@ -46,7 +42,7 @@ public final class InstalledUnityScanner {
             if (!result.isUnity()) return Collections.emptyList();
 
             CharSequence labelSeq = pm.getApplicationLabel(app);
-            String label = labelSeq == null ? "Fire Zone" : labelSeq.toString();
+            String label = labelSeq == null ? "Mamo Ball" : labelSeq.toString();
             return Collections.singletonList(
                     new InstalledUnityGame(label, TARGET_PACKAGE, result, apkPaths)
             );
