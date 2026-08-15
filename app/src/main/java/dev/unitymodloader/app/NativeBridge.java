@@ -9,19 +9,15 @@ public final class NativeBridge {
 
     public static native String coreVersion();
 
-    /** Applies/restores the verified Fire Zone infinite-ammo patch. */
-    public static native String setFireZoneInfiniteAmmo(boolean enabled);
+    /** Applies/restores the verified Mamo Ball 4.6.15 super-kick patch. */
+    public static native String setMamoBallSuperKick(boolean enabled);
+
+    /** Applies/restores the verified Mamo Ball 4.6.15 2x movement-speed patch. */
+    public static native String setMamoBallSuperSpeed(boolean enabled);
 
     /**
-     * Applies/restores the verified Fire Zone cash patch.
-     * While enabled CurrentCash returns 999999 and writes are suppressed so the
-     * user's original saved balance is preserved.
-     */
-    public static native String setFireZoneInfiniteCoins(boolean enabled);
-
-    /**
-     * Returns [screenW, screenH, x, feetY, headY, depth, hp, ...] for hostile AI.
-     * Coordinates come from the authorized Fire Zone CTF build's own Unity camera.
+     * Legacy declaration kept only so the old Fire Zone overlay source remains
+     * buildable while the project transitions targets. It is not used by Mamo Ball.
      */
     public static native float[] getFireZoneEspTargets();
 
