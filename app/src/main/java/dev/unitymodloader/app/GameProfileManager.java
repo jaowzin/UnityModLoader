@@ -42,8 +42,8 @@ public final class GameProfileManager {
 
         String bootstrapStatus = "not-applicable";
         if (MAMO_BALL_PACKAGE.equals(game.getPackageName())) {
-            bootstrapStatus = prepareMamoBallBootstrap(context);
-            Log.i(TAG, "Mamo Ball early bootstrap: " + bootstrapStatus);
+            bootstrapStatus = prepareMamoBallAuthDiagnostic(context);
+            Log.i(TAG, "Mamo Ball 20% auth diagnostic: " + bootstrapStatus);
         }
 
         File profile = new File(root, "profile.properties");
@@ -53,14 +53,14 @@ public final class GameProfileManager {
             writer.write("backend=" + (backend == null ? "unknown" : backend.id()) + "\n");
             writer.write("apkCount=" + game.getApkPaths().size() + "\n");
             writer.write("architectures=" + String.join(",", game.getDetection().getArchitectures()) + "\n");
-            writer.write("bootstrap=" + bootstrapStatus.replace("\n", " ") + "\n");
+            writer.write("authDiagnostic=" + bootstrapStatus.replace("\n", " ") + "\n");
         } catch (IOException e) {
             return false;
         }
         return !bootstrapStatus.startsWith("ERROR:");
     }
 
-    private static String prepareMamoBallBootstrap(Context context) {
+    private static String prepareMamoBallAuthDiagnostic(Context context) {
         try {
             PackageManager pm = context.getPackageManager();
             @SuppressWarnings("deprecation")
@@ -68,9 +68,9 @@ public final class GameProfileManager {
             if (info.nativeLibraryDir == null || info.nativeLibraryDir.isEmpty()) {
                 return "ERROR: nativeLibraryDir do Mamo Ball vazio";
             }
-            return NativeBridge.prepareMamoBallBootstrap(info.nativeLibraryDir);
+            return NativeBridge.prepareMamoBallAuthDiagnostic(info.nativeLibraryDir);
         } catch (Throwable error) {
-            return "ERROR: early bootstrap: " + error.getClass().getSimpleName()
+            return "ERROR: auth diagnostic: " + error.getClass().getSimpleName()
                     + ": " + String.valueOf(error.getMessage());
         }
     }
