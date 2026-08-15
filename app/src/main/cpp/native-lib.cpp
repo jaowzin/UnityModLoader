@@ -19,21 +19,39 @@ constexpr const char* kTag = "UML.Native";
 constexpr const char* kIl2CppName = "libil2cpp.so";
 
 // Fire Zone FZS.0403.GP / Unity 6000.0.68f1 / ARM64.
-// <FireOneShot>d__351.MoveNext() decrements magazine/reserve with the same
-// ARM64 instruction: sub w8, w8, #1. Replacing only those two SUB instructions
-// with NOP keeps the original firing/reload logic intact while preserving ammo.
+// Infinite ammo: <FireOneShot>d__351.MoveNext() decrements magazine/reserve
+// with sub w8, w8, #1. NOP only those verified decrement instructions.
 constexpr uintptr_t kBulletsLeftSubRva = 0x115ABF4;
 constexpr uintptr_t kReserveAmmoSubRva = 0x115AD6C;
 constexpr uint32_t kExpectedSubW8 = 0x51000508;
 constexpr uint32_t kArm64Nop = 0xD503201F;
 
+// Infinite coins: Prefs.get_CurrentCash() / Prefs.set_CurrentCash(int).
+// Getter is replaced with: return 999999;
+// Setter is replaced with: return;  (preserves the user's real saved balance)
+constexpr uintptr_t kCashGetterRva = 0x11605C0;
+constexpr uintptr_t kCashSetterRva = 0x11605FC;
+constexpr uint32_t kCashGetterExpected0 = 0xA9BF4FFE; // stp x30, x19, [sp,#-0x10]!
+constexpr uint32_t kCashGetterExpected1 = 0x3941D008; // ldrb w8, [x0,#0x74]
+constexpr uint32_t kCashGetterExpected2 = 0xAA0003F3; // mov x19, x0
+constexpr uint32_t kCashSetterExpected0 = 0xAA0003E8; // mov x8, x0
+constexpr uint32_t kCashPatch0 = 0x528847E0; // mov w0, #0x423f
+constexpr uint32_t kCashPatch1 = 0x72A001E0; // movk w0, #0xf, lsl #16 => 999999
+constexpr uint32_t kArm64Ret = 0xD65F03C0;
+
 std::mutex g_handlesMutex;
 std::vector<void*> g_pluginHandles;
 std::mutex g_patchMutex;
+
 uint32_t g_originalBullets = 0;
 uint32_t g_originalReserve = 0;
-bool g_savedOriginals = false;
+bool g_savedAmmoOriginals = false;
 bool g_ammoPatchActive = false;
+
+uint32_t g_originalCashGetter[3] = {0, 0, 0};
+uint32_t g_originalCashSetter = 0;
+bool g_savedCashOriginals = false;
+bool g_cashPatchActive = false;
 
 std::string toString(JNIEnv* env, jstring value) {
     if (value == nullptr) return {};
@@ -126,9 +144,7 @@ std::string setFireZoneAmmoPatch(bool enabled) {
     std::lock_guard<std::mutex> lock(g_patchMutex);
 
     const uintptr_t base = findLibraryBase(kIl2CppName);
-    if (base == 0) {
-        return "WAIT: libil2cpp.so ainda nao carregou";
-    }
+    if (base == 0) return "WAIT: libil2cpp.so ainda nao carregou";
 
     const uintptr_t bulletsAddress = base + kBulletsLeftSubRva;
     const uintptr_t reserveAddress = base + kReserveAmmoSubRva;
@@ -136,64 +152,130 @@ std::string setFireZoneAmmoPatch(bool enabled) {
     const uint32_t reserveNow = *reinterpret_cast<volatile uint32_t*>(reserveAddress);
 
     if (enabled) {
-        if (!g_savedOriginals) {
+        if (!g_savedAmmoOriginals) {
             if (bulletsNow != kExpectedSubW8 || reserveNow != kExpectedSubW8) {
                 char buffer[180];
                 std::snprintf(buffer, sizeof(buffer),
-                              "ERROR: assinatura da build nao confere (0x%08x / 0x%08x)",
+                              "ERROR: assinatura ammo nao confere (0x%08x / 0x%08x)",
                               bulletsNow, reserveNow);
                 return buffer;
             }
             g_originalBullets = bulletsNow;
             g_originalReserve = reserveNow;
-            g_savedOriginals = true;
+            g_savedAmmoOriginals = true;
         }
 
         std::string error;
-        if (bulletsNow != kArm64Nop && !writeInstruction(bulletsAddress, kArm64Nop, error)) {
+        if (bulletsNow != kArm64Nop && !writeInstruction(bulletsAddress, kArm64Nop, error))
             return "ERROR: patch bulletsLeft: " + error;
-        }
-        if (reserveNow != kArm64Nop && !writeInstruction(reserveAddress, kArm64Nop, error)) {
+        if (reserveNow != kArm64Nop && !writeInstruction(reserveAddress, kArm64Nop, error))
             return "ERROR: patch ammo: " + error;
-        }
 
         g_ammoPatchActive = true;
-        __android_log_print(ANDROID_LOG_INFO, kTag,
-                            "Fire Zone infinite ammo active; il2cpp=%p",
-                            reinterpret_cast<void*>(base));
         return "OK: municao infinita ativa";
     }
 
-    if (!g_savedOriginals) {
-        return "OK: municao infinita desativada";
-    }
+    if (!g_savedAmmoOriginals) return "OK: municao infinita desativada";
 
     std::string error;
-    if (bulletsNow == kArm64Nop && !writeInstruction(bulletsAddress, g_originalBullets, error)) {
+    if (bulletsNow == kArm64Nop && !writeInstruction(bulletsAddress, g_originalBullets, error))
         return "ERROR: restore bulletsLeft: " + error;
-    }
-    if (reserveNow == kArm64Nop && !writeInstruction(reserveAddress, g_originalReserve, error)) {
+    if (reserveNow == kArm64Nop && !writeInstruction(reserveAddress, g_originalReserve, error))
         return "ERROR: restore ammo: " + error;
-    }
 
     g_ammoPatchActive = false;
     return "OK: municao infinita desativada";
+}
+
+std::string setFireZoneCashPatch(bool enabled) {
+    std::lock_guard<std::mutex> lock(g_patchMutex);
+
+    const uintptr_t base = findLibraryBase(kIl2CppName);
+    if (base == 0) return "WAIT: libil2cpp.so ainda nao carregou";
+
+    const uintptr_t getter = base + kCashGetterRva;
+    const uintptr_t setter = base + kCashSetterRva;
+
+    const uint32_t g0 = *reinterpret_cast<volatile uint32_t*>(getter + 0);
+    const uint32_t g1 = *reinterpret_cast<volatile uint32_t*>(getter + 4);
+    const uint32_t g2 = *reinterpret_cast<volatile uint32_t*>(getter + 8);
+    const uint32_t s0 = *reinterpret_cast<volatile uint32_t*>(setter);
+
+    if (enabled) {
+        if (!g_savedCashOriginals) {
+            if (g0 != kCashGetterExpected0 || g1 != kCashGetterExpected1 ||
+                g2 != kCashGetterExpected2 || s0 != kCashSetterExpected0) {
+                char buffer[220];
+                std::snprintf(buffer, sizeof(buffer),
+                              "ERROR: assinatura cash nao confere (%08x/%08x/%08x/%08x)",
+                              g0, g1, g2, s0);
+                return buffer;
+            }
+            g_originalCashGetter[0] = g0;
+            g_originalCashGetter[1] = g1;
+            g_originalCashGetter[2] = g2;
+            g_originalCashSetter = s0;
+            g_savedCashOriginals = true;
+        }
+
+        std::string error;
+        if (g0 != kCashPatch0 && !writeInstruction(getter + 0, kCashPatch0, error))
+            return "ERROR: patch cash getter[0]: " + error;
+        if (g1 != kCashPatch1 && !writeInstruction(getter + 4, kCashPatch1, error))
+            return "ERROR: patch cash getter[1]: " + error;
+        if (g2 != kArm64Ret && !writeInstruction(getter + 8, kArm64Ret, error))
+            return "ERROR: patch cash getter[2]: " + error;
+        if (s0 != kArm64Ret && !writeInstruction(setter, kArm64Ret, error))
+            return "ERROR: patch cash setter: " + error;
+
+        g_cashPatchActive = true;
+        __android_log_print(ANDROID_LOG_INFO, kTag,
+                            "Fire Zone infinite cash active; getter=%p setter=%p",
+                            reinterpret_cast<void*>(getter), reinterpret_cast<void*>(setter));
+        return "OK: moedas infinitas ativas (999999)";
+    }
+
+    if (!g_savedCashOriginals) return "OK: moedas infinitas desativadas";
+
+    std::string error;
+    const uint32_t now0 = *reinterpret_cast<volatile uint32_t*>(getter + 0);
+    const uint32_t now1 = *reinterpret_cast<volatile uint32_t*>(getter + 4);
+    const uint32_t now2 = *reinterpret_cast<volatile uint32_t*>(getter + 8);
+    const uint32_t nowS = *reinterpret_cast<volatile uint32_t*>(setter);
+
+    if (now0 == kCashPatch0 && !writeInstruction(getter + 0, g_originalCashGetter[0], error))
+        return "ERROR: restore cash getter[0]: " + error;
+    if (now1 == kCashPatch1 && !writeInstruction(getter + 4, g_originalCashGetter[1], error))
+        return "ERROR: restore cash getter[1]: " + error;
+    if (now2 == kArm64Ret && !writeInstruction(getter + 8, g_originalCashGetter[2], error))
+        return "ERROR: restore cash getter[2]: " + error;
+    if (nowS == kArm64Ret && !writeInstruction(setter, g_originalCashSetter, error))
+        return "ERROR: restore cash setter: " + error;
+
+    g_cashPatchActive = false;
+    return "OK: moedas infinitas desativadas";
 }
 }
 
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_dev_unitymodloader_app_NativeBridge_coreVersion(JNIEnv* env, jclass) {
-    return env->NewStringUTF("umlcore/0.6.0-firezone");
+    return env->NewStringUTF("umlcore/0.6.1-firezone");
 }
 
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_dev_unitymodloader_app_NativeBridge_setFireZoneInfiniteAmmo(
-        JNIEnv* env,
-        jclass,
-        jboolean enabled) {
+        JNIEnv* env, jclass, jboolean enabled) {
     const std::string result = setFireZoneAmmoPatch(enabled == JNI_TRUE);
+    return env->NewStringUTF(result.c_str());
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_dev_unitymodloader_app_NativeBridge_setFireZoneInfiniteCoins(
+        JNIEnv* env, jclass, jboolean enabled) {
+    const std::string result = setFireZoneCashPatch(enabled == JNI_TRUE);
     return env->NewStringUTF(result.c_str());
 }
 
@@ -208,9 +290,7 @@ Java_dev_unitymodloader_app_NativeBridge_loadNativePlugins(
     const std::string package = toString(env, packageName);
     std::string report;
 
-    if (directory.empty()) {
-        return env->NewStringUTF("Diretorio de plugins vazio");
-    }
+    if (directory.empty()) return env->NewStringUTF("Diretorio de plugins vazio");
 
     const std::vector<std::string> plugins = findPlugins(directory);
     if (plugins.empty()) {
@@ -225,7 +305,8 @@ Java_dev_unitymodloader_app_NativeBridge_loadNativePlugins(
         void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
         if (handle == nullptr) {
             const char* error = dlerror();
-            const std::string line = "ERRO " + name + ": " + (error != nullptr ? error : "dlopen falhou");
+            const std::string line = "ERRO " + name + ": " +
+                    (error != nullptr ? error : "dlopen falhou");
             appendLine(report, line);
             __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", line.c_str());
             continue;
