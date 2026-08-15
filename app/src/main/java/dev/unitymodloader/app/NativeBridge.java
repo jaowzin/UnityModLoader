@@ -9,17 +9,16 @@ public final class NativeBridge {
 
     public static native String coreVersion();
 
-    /**
-     * Applies/restores the Fire Zone CTF infinite-ammo patch in the currently
-     * hosted libil2cpp.so. Returns OK/WAIT/ERROR plus a short diagnostic.
-     */
+    /** Applies/restores the verified Fire Zone infinite-ammo patch. */
     public static native String setFireZoneInfiniteAmmo(boolean enabled);
 
     /**
-     * Loads every .so plugin in the supplied directory with RTLD_GLOBAL.
-     * A native plugin may export:
-     *
-     *   extern "C" const char* uml_plugin_init(const char* packageName);
+     * Applies/restores the verified Fire Zone cash patch.
+     * While enabled CurrentCash returns 999999 and writes are suppressed so the
+     * user's original saved balance is preserved.
      */
+    public static native String setFireZoneInfiniteCoins(boolean enabled);
+
+    /** Loads every .so plugin in the supplied directory with RTLD_GLOBAL. */
     public static native String loadNativePlugins(String pluginDirectory, String packageName);
 }
