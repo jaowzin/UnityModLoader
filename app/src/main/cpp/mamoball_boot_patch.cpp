@@ -1,5 +1,6 @@
 #include <jni.h>
 #include <android/log.h>
+#include <dlfcn.h>
 #include <link.h>
 #include <sys/mman.h>
 #include <unistd.h>
@@ -33,6 +34,7 @@ std::mutex gMutex;
 uint32_t gOriginal0 = 0;
 uint32_t gOriginal1 = 0;
 bool gSaved = false;
+void* gPreloadedIl2Cpp = nullptr;
 
 struct LibrarySearch {
     const char* needle;
@@ -87,9 +89,7 @@ bool writeInstruction(uintptr_t address, uint32_t instruction, std::string& erro
     return true;
 }
 
-std::string setGuestBootstrap(bool enabled) {
-    std::lock_guard<std::mutex> lock(gMutex);
-
+std::string setGuestBootstrapLocked(bool enabled) {
     const uintptr_t base = findLibraryBase();
     if (base == 0) return "WAIT: libil2cpp.so ainda nao carregou";
 
@@ -101,6 +101,10 @@ std::string setGuestBootstrap(bool enabled) {
     if (enabled) {
         if (!gSaved) {
             if (now0 != kExpected0 || now1 != kExpected1) {
+                // Already patched by this process is also valid.
+                if (now0 == kPatch0 && now1 == kPatch1) {
+                    return "OK: bootstrap guest CTF ja estava ativo";
+                }
                 char buffer[220];
                 std::snprintf(buffer, sizeof(buffer),
                               "ERROR: assinatura guest bootstrap nao confere (%08x/%08x)",
@@ -119,8 +123,9 @@ std::string setGuestBootstrap(bool enabled) {
             return "ERROR: guest bootstrap[1]: " + error;
 
         __android_log_print(ANDROID_LOG_INFO, kTag,
-                            "Guest bootstrap active at %p", reinterpret_cast<void*>(a0));
-        return "OK: bootstrap guest CTF ativo";
+                            "Guest bootstrap active before Unity start at %p",
+                            reinterpret_cast<void*>(a0));
+        return "OK: bootstrap guest CTF ativo antes do Unity";
     }
 
     if (!gSaved) return "OK: bootstrap guest CTF desativado";
@@ -135,6 +140,47 @@ std::string setGuestBootstrap(bool enabled) {
 
     return "OK: bootstrap guest CTF desativado";
 }
+
+std::string setGuestBootstrap(bool enabled) {
+    std::lock_guard<std::mutex> lock(gMutex);
+    return setGuestBootstrapLocked(enabled);
+}
+
+std::string preloadAndPatch(const std::string& nativeLibraryDir) {
+    std::lock_guard<std::mutex> lock(gMutex);
+
+    if (findLibraryBase() == 0) {
+        if (nativeLibraryDir.empty()) {
+            return "ERROR: nativeLibraryDir vazio";
+        }
+
+        std::string path = nativeLibraryDir;
+        if (!path.empty() && path.back() != '/') path += '/';
+        path += kIl2CppName;
+
+        dlerror();
+        gPreloadedIl2Cpp = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
+        if (gPreloadedIl2Cpp == nullptr) {
+            const char* err = dlerror();
+            return std::string("ERROR: preload libil2cpp falhou: ") +
+                    (err != nullptr ? err : "dlopen sem detalhe");
+        }
+
+        __android_log_print(ANDROID_LOG_INFO, kTag,
+                            "Preloaded target IL2CPP before UnityPlayer: %s", path.c_str());
+    }
+
+    return setGuestBootstrapLocked(true);
+}
+
+std::string jstringToString(JNIEnv* env, jstring value) {
+    if (value == nullptr) return {};
+    const char* chars = env->GetStringUTFChars(value, nullptr);
+    if (chars == nullptr) return {};
+    std::string result(chars);
+    env->ReleaseStringUTFChars(value, chars);
+    return result;
+}
 } // namespace
 
 extern "C"
@@ -142,5 +188,13 @@ JNIEXPORT jstring JNICALL
 Java_dev_unitymodloader_app_NativeBridge_setMamoBallGuestBootstrap(
         JNIEnv* env, jclass, jboolean enabled) {
     const std::string result = setGuestBootstrap(enabled == JNI_TRUE);
+    return env->NewStringUTF(result.c_str());
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_dev_unitymodloader_app_NativeBridge_prepareMamoBallBootstrap(
+        JNIEnv* env, jclass, jstring nativeLibraryDir) {
+    const std::string result = preloadAndPatch(jstringToString(env, nativeLibraryDir));
     return env->NewStringUTF(result.c_str());
 }
