@@ -3,7 +3,8 @@ project(umlcore LANGUAGES CXX)
 
 add_library(umlcore SHARED
         native-lib.cpp
-        mamoball_boot_patch.cpp)
+        mamoball_boot_patch.cpp
+        mamoball_auth_diag.cpp)
 target_compile_features(umlcore PRIVATE cxx_std_20)
 
 find_library(log-lib log)
