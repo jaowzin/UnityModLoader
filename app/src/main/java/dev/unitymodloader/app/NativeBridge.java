@@ -19,6 +19,12 @@ public final class NativeBridge {
      */
     public static native String setFireZoneInfiniteCoins(boolean enabled);
 
+    /**
+     * Returns [screenW, screenH, x, feetY, headY, depth, hp, ...] for hostile AI.
+     * Coordinates come from the authorized Fire Zone CTF build's own Unity camera.
+     */
+    public static native float[] getFireZoneEspTargets();
+
     /** Loads every .so plugin in the supplied directory with RTLD_GLOBAL. */
     public static native String loadNativePlugins(String pluginDirectory, String packageName);
 }
