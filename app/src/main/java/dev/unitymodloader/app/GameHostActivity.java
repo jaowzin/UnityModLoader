@@ -28,16 +28,24 @@ import java.util.Comparator;
 import java.util.List;
 
 /**
- * Experimental host that creates an installed Unity game's UnityPlayer inside
- * UnityModLoader's process. It does not modify or re-sign the target APK.
+ * Experimental Unity host.
+ *
+ * Fire Zone (com.sfcgs.gun.terrorist.shooting.missions) was inspected directly:
+ * Unity 6000.0.68f1, ARM64, IL2CPP. Its launcher UnityPlayerActivity creates
+ * UnityPlayerForActivityOrService(Context, IUnityPlayerLifecycleEvents), not the
+ * older UnityPlayer(Context) shape. This host mirrors that path first.
  */
 public final class GameHostActivity extends Activity {
     public static final String EXTRA_TARGET_PACKAGE = "target_package";
     private static final String TAG = "UML.GameHost";
 
+    private static final String FIRE_ZONE_PACKAGE = "com.sfcgs.gun.terrorist.shooting.missions";
+    private static final String UNITY6_ACTIVITY_PLAYER = "com.unity3d.player.UnityPlayerForActivityOrService";
+
     private static final String[] UNITY_PLAYER_CLASSES = {
-            "com.unity3d.player.UnityPlayer",
-            "com.unity3d.player.UnityPlayerForActivityOrService"
+            // Unity 6 Activity path first. Fire Zone uses this class directly.
+            UNITY6_ACTIVITY_PLAYER,
+            "com.unity3d.player.UnityPlayer"
     };
 
     private Context installedGameContext;
@@ -107,17 +115,21 @@ public final class GameHostActivity extends Activity {
 
         Class<?> playerClass = findUnityPlayerClass(gameLoader);
         if (bootStatus != null) {
-            bootStatus.setText("Unity encontrado: " + playerClass.getName());
+            String suffix = FIRE_ZONE_PACKAGE.equals(targetPackage)
+                    ? " (Fire Zone / Unity 6000.0.68f1)"
+                    : "";
+            bootStatus.setText("Unity encontrado: " + playerClass.getName() + suffix);
         }
 
         unityPlayer = constructUnityPlayer(playerClass);
-        if (!(unityPlayer instanceof View)) {
+        unityView = extractUnityView(unityPlayer);
+        if (unityView == null) {
             throw new IllegalStateException(
-                    "UnityPlayer foi criado, mas não é uma View: " + unityPlayer.getClass().getName()
+                    "Unity foi criado, mas nenhuma View/FrameLayout compatível foi encontrada em "
+                            + unityPlayer.getClass().getName()
             );
         }
 
-        unityView = (View) unityPlayer;
         unityView.setFocusableInTouchMode(true);
         unityView.requestFocus();
         setContentView(unityView);
@@ -158,6 +170,14 @@ public final class GameHostActivity extends Activity {
     }
 
     private Object constructUnityPlayer(Class<?> playerClass) throws Exception {
+        // Fire Zone / Unity 6 exact launcher path:
+        // new UnityPlayerForActivityOrService(this, thisLifecycleEvents)
+        if (UNITY6_ACTIVITY_PLAYER.equals(playerClass.getName())) {
+            Object unity6 = constructUnity6ActivityPlayer(playerClass);
+            if (unity6 != null) return unity6;
+        }
+
+        // Fallback for older/different Unity versions.
         Constructor<?>[] constructors = playerClass.getDeclaredConstructors();
         Arrays.sort(constructors, Comparator.comparingInt(Constructor::getParameterCount));
 
@@ -184,6 +204,45 @@ public final class GameHostActivity extends Activity {
         throw failure;
     }
 
+    private Object constructUnity6ActivityPlayer(Class<?> playerClass) throws Exception {
+        ClassLoader loader = installedGameContext.getClassLoader();
+        Class<?> lifecycleType = Class.forName(
+                "com.unity3d.player.IUnityPlayerLifecycleEvents",
+                true,
+                loader
+        );
+
+        Object lifecycleProxy = Proxy.newProxyInstance(
+                loader,
+                new Class<?>[]{lifecycleType},
+                (proxy, method, methodArgs) -> {
+                    String name = method.getName();
+                    if ("onUnityPlayerQuitted".equals(name)) {
+                        Log.i(TAG, "Unity lifecycle: onUnityPlayerQuitted");
+                        runOnUiThread(this::finish);
+                    } else if ("onUnityPlayerUnloaded".equals(name)) {
+                        Log.i(TAG, "Unity lifecycle: onUnityPlayerUnloaded");
+                    } else if ("toString".equals(name)) {
+                        return "UnityModLoaderLifecycleProxy";
+                    } else if ("hashCode".equals(name)) {
+                        return System.identityHashCode(proxy);
+                    } else if ("equals".equals(name)) {
+                        return methodArgs != null && methodArgs.length == 1 && proxy == methodArgs[0];
+                    }
+                    return defaultValue(method.getReturnType());
+                }
+        );
+
+        Constructor<?> constructor = playerClass.getDeclaredConstructor(Context.class, lifecycleType);
+        constructor.setAccessible(true);
+
+        // The real Fire Zone UnityPlayerActivity passes the Activity itself as Context.
+        // Our Activity exposes the target game's resources/classloader through overrides.
+        Object value = constructor.newInstance(this, lifecycleProxy);
+        Log.i(TAG, "Unity 6 Activity constructor selected: " + constructor);
+        return value;
+    }
+
     private Object[] buildConstructorArguments(Class<?>[] types) {
         if (types.length == 0) return new Object[0];
 
@@ -193,24 +252,25 @@ public final class GameHostActivity extends Activity {
         for (int i = 0; i < types.length; i++) {
             Class<?> type = types[i];
 
-            if (type.isInstance(bridge)) {
-                args[i] = bridge;
-                hasContext = true;
-                continue;
-            }
+            // Prefer the Activity for Context because modern Unity checks Activity features.
             if (type.isInstance(this)) {
                 args[i] = this;
                 hasContext = true;
                 continue;
             }
+            if (type.isInstance(bridge)) {
+                args[i] = bridge;
+                hasContext = true;
+                continue;
+            }
             if (Context.class.isAssignableFrom(type)) {
-                if (type.isAssignableFrom(bridge.getClass())) {
-                    args[i] = bridge;
+                if (type.isAssignableFrom(getClass())) {
+                    args[i] = this;
                     hasContext = true;
                     continue;
                 }
-                if (type.isAssignableFrom(getClass())) {
-                    args[i] = this;
+                if (type.isAssignableFrom(bridge.getClass())) {
+                    args[i] = bridge;
                     hasContext = true;
                     continue;
                 }
@@ -233,13 +293,31 @@ public final class GameHostActivity extends Activity {
                 continue;
             }
 
-            // Optional Unity helper/listener argument. Null is safer than inventing
-            // an implementation for an unknown game-specific class.
             args[i] = null;
         }
 
-        // UnityPlayer constructors are expected to be attached to a Context/Activity.
         return hasContext ? args : null;
+    }
+
+    private View extractUnityView(Object player) {
+        if (player == null) return null;
+        if (player instanceof View) return (View) player;
+
+        for (String methodName : new String[]{"getFrameLayout", "getView"}) {
+            try {
+                Method method = player.getClass().getMethod(methodName);
+                method.setAccessible(true);
+                Object value = method.invoke(player);
+                if (value instanceof View) {
+                    Log.i(TAG, "Unity view selected via " + methodName + "(): "
+                            + value.getClass().getName());
+                    return (View) value;
+                }
+            } catch (Throwable error) {
+                Log.d(TAG, "Unity view method unavailable: " + methodName, error);
+            }
+        }
+        return null;
     }
 
     private static Object defaultValue(Class<?> type) {
@@ -255,9 +333,9 @@ public final class GameHostActivity extends Activity {
         return null;
     }
 
-    private void invokeUnity(String name, Class<?>[] parameterTypes, Object... args) {
+    private boolean invokeUnity(String name, Class<?>[] parameterTypes, Object... args) {
         Object player = unityPlayer;
-        if (player == null) return;
+        if (player == null) return false;
 
         Class<?> current = player.getClass();
         while (current != null) {
@@ -265,31 +343,54 @@ public final class GameHostActivity extends Activity {
                 Method method = current.getDeclaredMethod(name, parameterTypes);
                 method.setAccessible(true);
                 method.invoke(player, args);
-                return;
+                return true;
             } catch (NoSuchMethodException ignored) {
                 current = current.getSuperclass();
             } catch (Throwable error) {
                 Log.w(TAG, "Unity lifecycle call failed: " + name, error);
-                return;
+                return false;
             }
         }
+        return false;
+    }
+
+    private void invokeUnityAny(String primary, String fallback) {
+        if (!invokeUnity(primary, new Class<?>[0]) && fallback != null) {
+            invokeUnity(fallback, new Class<?>[0]);
+        }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        invokeUnityAny("onStart", null);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        invokeUnity("resume", new Class<?>[0]);
+        invokeUnityAny("onResume", "resume");
     }
 
     @Override
     protected void onPause() {
-        invokeUnity("pause", new Class<?>[0]);
+        invokeUnityAny("onPause", "pause");
         super.onPause();
     }
 
     @Override
+    protected void onStop() {
+        invokeUnityAny("onStop", null);
+        super.onStop();
+    }
+
+    @Override
     protected void onDestroy() {
-        invokeUnity("quit", new Class<?>[0]);
+        if (!invokeUnity("destroy", new Class<?>[0])) {
+            if (!invokeUnity("quit", new Class<?>[0])) {
+                invokeUnity("shutdown", new Class<?>[0]);
+            }
+        }
         unityPlayer = null;
         unityView = null;
         super.onDestroy();
@@ -310,6 +411,8 @@ public final class GameHostActivity extends Activity {
     @Override
     public void onLowMemory() {
         super.onLowMemory();
+        // Older UnityPlayer exposes lowMemory(). Unity 6 uses onTrimMemory(enum),
+        // so no fake enum is injected here.
         invokeUnity("lowMemory", new Class<?>[0]);
     }
 
@@ -320,11 +423,35 @@ public final class GameHostActivity extends Activity {
         invokeUnity("newIntent", new Class<?>[]{Intent.class}, intent);
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        Object player = unityPlayer;
+        if (player == null) return;
+        try {
+            Method method = player.getClass().getMethod(
+                    "permissionResponse",
+                    Activity.class,
+                    int.class,
+                    String[].class,
+                    int[].class
+            );
+            method.invoke(player, this, requestCode, permissions, grantResults);
+        } catch (NoSuchMethodException ignored) {
+            // Older Unity versions may handle this differently.
+        } catch (Throwable error) {
+            Log.w(TAG, "Unity permissionResponse failed", error);
+        }
+    }
+
     private void showFatal(String message, Throwable error) {
         Log.e(TAG, message, error);
         TextView text = new TextView(this);
         String details = error == null ? "" : "\n\n" + error.getClass().getSimpleName() + ": " + error.getMessage();
-        text.setText(message + details + "\n\nVolte ao Unity Mod Loader e tente outro jogo.");
+        String targetHint = FIRE_ZONE_PACKAGE.equals(targetPackage)
+                ? "\n\nPerfil: Fire Zone / Unity 6000.0.68f1 / IL2CPP ARM64"
+                : "";
+        text.setText(message + details + targetHint + "\n\nVolte ao Unity Mod Loader.");
         text.setTextSize(16f);
         text.setGravity(Gravity.CENTER);
         text.setPadding(dp(24), dp(24), dp(24), dp(24));
@@ -332,9 +459,8 @@ public final class GameHostActivity extends Activity {
     }
 
     /*
-     * When UnityPlayer has a constructor that specifically requires Activity,
-     * these overrides make our Activity expose the target game's resources/code
-     * while keeping writable storage in our own sandbox.
+     * Expose the installed game's resources/code/native-library metadata while
+     * writable storage remains inside UnityModLoader's own sandbox.
      */
     @Override
     public AssetManager getAssets() {
@@ -373,8 +499,6 @@ public final class GameHostActivity extends Activity {
 
     @Override
     public File getExternalFilesDir(String type) {
-        // Always use the loader package's external sandbox. Calling bridge here
-        // would recurse because bridge delegates this method back to the host.
         return super.getExternalFilesDir(type);
     }
 
