@@ -6,47 +6,52 @@ import android.content.pm.PackageManager;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Collections;
 import java.util.List;
 
+/**
+ * Dedicated target scanner for the Fire Zone CTF build.
+ * We intentionally do not enumerate every installed application anymore.
+ */
 public final class InstalledUnityScanner {
+    public static final String TARGET_PACKAGE = "com.sfcgs.gun.terrorist.shooting.missions";
+
     private InstalledUnityScanner() {}
 
     public static List<InstalledUnityGame> scan(Context context) {
         PackageManager pm = context.getPackageManager();
-        List<InstalledUnityGame> games = new ArrayList<>();
 
-        for (ApplicationInfo app : pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))) {
-            try {
-                List<File> apkFiles = new ArrayList<>();
-                List<String> apkPaths = new ArrayList<>();
+        try {
+            // Deprecated overload is deliberate: it works on the full minSdk range.
+            @SuppressWarnings("deprecation")
+            ApplicationInfo app = pm.getApplicationInfo(TARGET_PACKAGE, 0);
 
-                if (app.sourceDir != null) {
-                    File base = new File(app.sourceDir);
-                    apkFiles.add(base);
-                    apkPaths.add(app.sourceDir);
-                }
+            List<File> apkFiles = new ArrayList<>();
+            List<String> apkPaths = new ArrayList<>();
 
-                if (app.splitSourceDirs != null) {
-                    for (String split : app.splitSourceDirs) {
-                        if (split == null) continue;
-                        apkFiles.add(new File(split));
-                        apkPaths.add(split);
-                    }
-                }
-
-                DetectionResult result = UnityApkDetector.inspect(apkFiles);
-                if (!result.isUnity()) continue;
-
-                CharSequence labelSeq = pm.getApplicationLabel(app);
-                String label = labelSeq == null ? app.packageName : labelSeq.toString();
-                games.add(new InstalledUnityGame(label, app.packageName, result, apkPaths));
-            } catch (Throwable ignored) {
-                // Um pacote quebrado/inacessível não deve interromper a varredura inteira.
+            if (app.sourceDir != null) {
+                apkFiles.add(new File(app.sourceDir));
+                apkPaths.add(app.sourceDir);
             }
-        }
 
-        games.sort(Comparator.comparing(InstalledUnityGame::getLabel, String.CASE_INSENSITIVE_ORDER));
-        return games;
+            if (app.splitSourceDirs != null) {
+                for (String split : app.splitSourceDirs) {
+                    if (split == null) continue;
+                    apkFiles.add(new File(split));
+                    apkPaths.add(split);
+                }
+            }
+
+            DetectionResult result = UnityApkDetector.inspect(apkFiles);
+            if (!result.isUnity()) return Collections.emptyList();
+
+            CharSequence labelSeq = pm.getApplicationLabel(app);
+            String label = labelSeq == null ? "Fire Zone" : labelSeq.toString();
+            return Collections.singletonList(
+                    new InstalledUnityGame(label, TARGET_PACKAGE, result, apkPaths)
+            );
+        } catch (Throwable ignored) {
+            return Collections.emptyList();
+        }
     }
 }
