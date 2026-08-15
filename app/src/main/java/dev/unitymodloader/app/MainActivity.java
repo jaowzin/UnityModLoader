@@ -32,6 +32,7 @@ public final class MainActivity extends Activity {
     private static final String TARGET_PACKAGE = InstalledUnityScanner.TARGET_PACKAGE;
     private static final String PREFS = "firezone_mod_prefs";
     private static final String KEY_INFINITE_AMMO = "infinite_ammo";
+    private static final String KEY_INFINITE_COINS = "infinite_coins";
 
     private static final int BG = Color.rgb(8, 11, 18);
     private static final int CARD = Color.rgb(18, 24, 35);
@@ -44,11 +45,11 @@ public final class MainActivity extends Activity {
 
     private ImageView gameIcon;
     private TextView gameName;
-    private TextView packageLine;
     private TextView statusBadge;
     private TextView details;
     private ProgressBar progress;
     private Switch infiniteAmmoSwitch;
+    private Switch infiniteCoinsSwitch;
     private Button launchModded;
     private Button launchClean;
     private Button recheck;
@@ -68,8 +69,11 @@ public final class MainActivity extends Activity {
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
         infiniteAmmoSwitch.setChecked(prefs.getBoolean(KEY_INFINITE_AMMO, true));
+        infiniteCoinsSwitch.setChecked(prefs.getBoolean(KEY_INFINITE_COINS, true));
         infiniteAmmoSwitch.setOnCheckedChangeListener((buttonView, checked) ->
                 prefs.edit().putBoolean(KEY_INFINITE_AMMO, checked).apply());
+        infiniteCoinsSwitch.setOnCheckedChangeListener((buttonView, checked) ->
+                prefs.edit().putBoolean(KEY_INFINITE_COINS, checked).apply());
 
         scanTarget();
     }
@@ -85,8 +89,7 @@ public final class MainActivity extends Activity {
         root.setBackgroundColor(BG);
         scroll.addView(root, new ScrollView.LayoutParams(
                 ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
-        ));
+                ScrollView.LayoutParams.WRAP_CONTENT));
 
         TextView overline = text("FIRE ZONE // MOD CORE", 12f, ACCENT, Typeface.BOLD);
         overline.setLetterSpacing(0.16f);
@@ -96,7 +99,7 @@ public final class MainActivity extends Activity {
         title.setPadding(0, dp(4), 0, 0);
         root.addView(title);
 
-        TextView subtitle = text("Loader IL2CPP dedicado • build 0.6.0", 14f, MUTED, Typeface.NORMAL);
+        TextView subtitle = text("Loader IL2CPP dedicado • build 0.6.1", 14f, MUTED, Typeface.NORMAL);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
@@ -116,15 +119,15 @@ public final class MainActivity extends Activity {
 
         LinearLayout gameText = new LinearLayout(this);
         gameText.setOrientation(LinearLayout.VERTICAL);
-        LinearLayout.LayoutParams gameTextParams = new LinearLayout.LayoutParams(0,
-                LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
+        LinearLayout.LayoutParams gameTextParams = new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f);
         gameTextParams.setMargins(dp(14), 0, dp(8), 0);
         gameTop.addView(gameText, gameTextParams);
 
         gameName = text("Fire Zone", 22f, TEXT, Typeface.BOLD);
         gameText.addView(gameName);
 
-        packageLine = text(TARGET_PACKAGE, 12f, MUTED, Typeface.NORMAL);
+        TextView packageLine = text(TARGET_PACKAGE, 12f, MUTED, Typeface.NORMAL);
         packageLine.setPadding(0, dp(4), 0, 0);
         gameText.addView(packageLine);
 
@@ -156,33 +159,19 @@ public final class MainActivity extends Activity {
         modCard.setBackground(roundRect(CARD_ALT, 22, STROKE, 1));
         root.addView(modCard, matchWrap(0));
 
-        LinearLayout modRow = new LinearLayout(this);
-        modRow.setOrientation(LinearLayout.HORIZONTAL);
-        modRow.setGravity(Gravity.CENTER_VERTICAL);
-        modCard.addView(modRow);
+        infiniteAmmoSwitch = addModRow(
+                modCard,
+                "Munição infinita",
+                "Preserva pente + reserva sem alterar a lógica de tiro.",
+                "FZS.0403.GP • 0x115ABF4 / 0x115AD6C",
+                false);
 
-        LinearLayout modText = new LinearLayout(this);
-        modText.setOrientation(LinearLayout.VERTICAL);
-        modRow.addView(modText, new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
-
-        TextView ammoTitle = text("Munição infinita", 18f, TEXT, Typeface.BOLD);
-        modText.addView(ammoTitle);
-
-        TextView ammoDesc = text("Preserva pente + reserva sem alterar a lógica de tiro.",
-                13f, MUTED, Typeface.NORMAL);
-        ammoDesc.setPadding(0, dp(4), dp(12), 0);
-        modText.addView(ammoDesc);
-
-        infiniteAmmoSwitch = new Switch(this);
-        infiniteAmmoSwitch.setShowText(false);
-        modRow.addView(infiniteAmmoSwitch);
-
-        TextView signature = text(
-                "Patch verificado para FZS.0403.GP • 0x115ABF4 / 0x115AD6C",
-                11f, MUTED, Typeface.NORMAL);
-        signature.setPadding(0, dp(14), 0, 0);
-        modCard.addView(signature);
+        infiniteCoinsSwitch = addModRow(
+                modCard,
+                "Moedas infinitas",
+                "Mostra 999.999 moedas e bloqueia gravações enquanto ativo.",
+                "Prefs.CurrentCash • getter 0x11605C0 • setter 0x11605FC",
+                true);
 
         launchModded = button("INICIAR COM MODS", true);
         launchModded.setEnabled(false);
@@ -213,6 +202,44 @@ public final class MainActivity extends Activity {
         root.addView(footer);
 
         return scroll;
+    }
+
+    private Switch addModRow(LinearLayout card, String titleValue, String description,
+                             String signature, boolean separated) {
+        if (separated) {
+            View divider = new View(this);
+            divider.setBackgroundColor(STROKE);
+            LinearLayout.LayoutParams dividerParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(1));
+            dividerParams.setMargins(0, dp(18), 0, dp(18));
+            card.addView(divider, dividerParams);
+        }
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(row);
+
+        LinearLayout copy = new LinearLayout(this);
+        copy.setOrientation(LinearLayout.VERTICAL);
+        row.addView(copy, new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
+
+        TextView title = text(titleValue, 18f, TEXT, Typeface.BOLD);
+        copy.addView(title);
+
+        TextView desc = text(description, 13f, MUTED, Typeface.NORMAL);
+        desc.setPadding(0, dp(4), dp(12), 0);
+        copy.addView(desc);
+
+        Switch toggle = new Switch(this);
+        toggle.setShowText(false);
+        row.addView(toggle);
+
+        TextView sig = text("Patch verificado • " + signature, 11f, MUTED, Typeface.NORMAL);
+        sig.setPadding(0, dp(12), 0, 0);
+        card.addView(sig);
+        return toggle;
     }
 
     private void scanTarget() {
@@ -298,31 +325,34 @@ public final class MainActivity extends Activity {
         if (targetGame == null) return;
 
         boolean infiniteAmmo = infiniteAmmoSwitch.isChecked();
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit().putBoolean(KEY_INFINITE_AMMO, infiniteAmmo).apply();
+        boolean infiniteCoins = infiniteCoinsSwitch.isChecked();
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putBoolean(KEY_INFINITE_AMMO, infiniteAmmo)
+                .putBoolean(KEY_INFINITE_COINS, infiniteCoins)
+                .apply();
 
         if (!GameProfileManager.prepare(this, targetGame, targetBackend)) {
             Toast.makeText(this, "Falha ao preparar perfil", Toast.LENGTH_LONG).show();
             return;
         }
 
-        // Same process: this watcher survives while GameHostActivity starts Unity.
-        // It waits until libil2cpp.so appears, then patches/restores the two verified
-        // ammo decrement instructions for this exact CTF build.
-        startAmmoPatchWatcher(infiniteAmmo);
+        startPatchWatcher("Ammo", infiniteAmmo, false);
+        startPatchWatcher("Coins", infiniteCoins, true);
 
         Intent host = new Intent(this, GameHostActivity.class);
         host.putExtra(GameHostActivity.EXTRA_TARGET_PACKAGE, TARGET_PACKAGE);
         startActivity(host);
     }
 
-    private void startAmmoPatchWatcher(boolean enabled) {
+    private void startPatchWatcher(String label, boolean enabled, boolean coins) {
         new Thread(() -> {
             String last = "";
             for (int attempt = 0; attempt < 80; attempt++) {
                 try {
-                    last = NativeBridge.setFireZoneInfiniteAmmo(enabled);
-                    Log.i(TAG, "Ammo patch: " + last);
+                    last = coins
+                            ? NativeBridge.setFireZoneInfiniteCoins(enabled)
+                            : NativeBridge.setFireZoneInfiniteAmmo(enabled);
+                    Log.i(TAG, label + " patch: " + last);
                     if (last.startsWith("OK:") || last.startsWith("ERROR:")) {
                         final String result = last;
                         if (result.startsWith("ERROR:")) {
@@ -333,7 +363,7 @@ public final class MainActivity extends Activity {
                     }
                     Thread.sleep(150L);
                 } catch (Throwable error) {
-                    Log.e(TAG, "Ammo patch watcher failed", error);
+                    Log.e(TAG, label + " patch watcher failed", error);
                     return;
                 }
             }
@@ -342,7 +372,7 @@ public final class MainActivity extends Activity {
                     ? "ERROR: libil2cpp não ficou pronto a tempo"
                     : last;
             runOnUiThread(() -> Toast.makeText(this, result, Toast.LENGTH_LONG).show());
-        }, "firezone-ammo-patch").start();
+        }, coins ? "firezone-coins-patch" : "firezone-ammo-patch").start();
     }
 
     private void launchClean() {
