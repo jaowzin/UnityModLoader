@@ -9,6 +9,9 @@ public final class NativeBridge {
 
     public static native String coreVersion();
 
+    /** Routes the empty-token LoginFragment directly to silent guest login. */
+    public static native String setMamoBallGuestBootstrap(boolean enabled);
+
     /** Applies/restores the verified Mamo Ball 4.6.15 super-kick patch. */
     public static native String setMamoBallSuperKick(boolean enabled);
 
