@@ -9,6 +9,12 @@ public final class NativeBridge {
 
     public static native String coreVersion();
 
+    /**
+     * Preloads the target libil2cpp.so by absolute nativeLibraryDir and arms the
+     * Mamo Ball guest bootstrap before UnityPlayer starts.
+     */
+    public static native String prepareMamoBallBootstrap(String nativeLibraryDir);
+
     /** Routes the empty-token LoginFragment directly to silent guest login. */
     public static native String setMamoBallGuestBootstrap(boolean enabled);
 
