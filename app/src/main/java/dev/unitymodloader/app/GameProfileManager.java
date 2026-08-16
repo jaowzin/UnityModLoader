@@ -1,18 +1,12 @@
 package dev.unitymodloader.app;
 
 import android.content.Context;
-import android.content.pm.ApplicationInfo;
-import android.content.pm.PackageManager;
-import android.util.Log;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 
 public final class GameProfileManager {
-    private static final String TAG = "UML.Profile";
-    private static final String MAMO_BALL_PACKAGE = "com.alberun.mamoball";
-
     private GameProfileManager() {}
 
     public static File root(Context context, InstalledUnityGame game) {
@@ -40,12 +34,6 @@ public final class GameProfileManager {
         boolean ok = ensure(root) && ensure(plugins) && ensure(config) && ensure(logs);
         if (!ok) return false;
 
-        String bootstrapStatus = "not-applicable";
-        if (MAMO_BALL_PACKAGE.equals(game.getPackageName())) {
-            bootstrapStatus = prepareMamoBallAuthDiagnostic(context);
-            Log.i(TAG, "Mamo Ball 20% auth diagnostic: " + bootstrapStatus);
-        }
-
         File profile = new File(root, "profile.properties");
         try (FileWriter writer = new FileWriter(profile, false)) {
             writer.write("package=" + game.getPackageName() + "\n");
@@ -53,26 +41,11 @@ public final class GameProfileManager {
             writer.write("backend=" + (backend == null ? "unknown" : backend.id()) + "\n");
             writer.write("apkCount=" + game.getApkPaths().size() + "\n");
             writer.write("architectures=" + String.join(",", game.getDetection().getArchitectures()) + "\n");
-            writer.write("authDiagnostic=" + bootstrapStatus.replace("\n", " ") + "\n");
+            writer.write("identityMode=loader-only-target-context\n");
         } catch (IOException e) {
             return false;
         }
-        return !bootstrapStatus.startsWith("ERROR:");
-    }
-
-    private static String prepareMamoBallAuthDiagnostic(Context context) {
-        try {
-            PackageManager pm = context.getPackageManager();
-            @SuppressWarnings("deprecation")
-            ApplicationInfo info = pm.getApplicationInfo(MAMO_BALL_PACKAGE, 0);
-            if (info.nativeLibraryDir == null || info.nativeLibraryDir.isEmpty()) {
-                return "ERROR: nativeLibraryDir do Mamo Ball vazio";
-            }
-            return NativeBridge.prepareMamoBallAuthDiagnostic(info.nativeLibraryDir);
-        } catch (Throwable error) {
-            return "ERROR: auth diagnostic: " + error.getClass().getSimpleName()
-                    + ": " + String.valueOf(error.getMessage());
-        }
+        return true;
     }
 
     private static boolean ensure(File dir) {
