@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.SharedPreferences;
 import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.os.Build;
@@ -54,8 +55,18 @@ final class GameContextBridge extends ContextWrapper {
     }
 
     @Override
+    public PackageManager getPackageManager() {
+        return gameContext.getPackageManager();
+    }
+
+    @Override
     public String getPackageName() {
         return gameContext.getPackageName();
+    }
+
+    @Override
+    public String getOpPackageName() {
+        return gameContext.getOpPackageName();
     }
 
     @Override
@@ -70,7 +81,7 @@ final class GameContextBridge extends ContextWrapper {
 
     @Override
     public ApplicationInfo getApplicationInfo() {
-        return bridgedApplicationInfo;
+        return new ApplicationInfo(bridgedApplicationInfo);
     }
 
     @Override
