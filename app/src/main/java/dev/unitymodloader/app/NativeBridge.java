@@ -10,11 +10,12 @@ public final class NativeBridge {
     public static native String coreVersion();
 
     /**
-     * Diagnostic for Mamo Ball 4.6.15: preload target IL2CPP and redirect the
-     * 20% authorization stage to SendInitialRequests (the 50% stage).
+     * Diagnostic for Mamo Ball 4.6.15: preload target IL2CPP and hook ApiManager
+     * request/response callbacks without changing the game's API results.
      */
     public static native String prepareMamoBallAuthDiagnostic(String nativeLibraryDir);
     public static native String setMamoBallAuthDiagnostic(boolean enabled);
+    public static native String getMamoBallAuthDiagnosticStatus();
 
     /** Legacy guest bootstrap retained for comparison/diagnostics. */
     public static native String prepareMamoBallBootstrap(String nativeLibraryDir);
