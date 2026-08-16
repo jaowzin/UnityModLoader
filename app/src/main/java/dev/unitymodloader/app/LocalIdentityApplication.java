@@ -7,7 +7,11 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.Signature;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.SystemClock;
 import android.util.Log;
+import android.widget.Toast;
 
 import java.security.MessageDigest;
 import java.util.Locale;
@@ -25,14 +29,23 @@ public final class LocalIdentityApplication extends Application {
     private static final String TARGET_PACKAGE = "com.alberun.mamoball";
 
     private Context targetContext;
+    private Context hostBaseContext;
     private ApplicationInfo targetApplicationInfo;
     private String hostOpPackageName;
     private int hostUid;
 
+    private Handler diagnosticHandler;
+    private String lastDiagnosticStatus = "";
+    private long lastDiagnosticChangeAt;
+    private long lastPendingRepeatAt;
+    private Toast diagnosticToast;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        hostBaseContext = getBaseContext();
         initializeTargetIdentity();
+        startApiDiagnosticNotifier();
     }
 
     private void initializeTargetIdentity() {
@@ -70,6 +83,60 @@ public final class LocalIdentityApplication extends Application {
             hostUid = 0;
             Log.w(TAG, "Target identity unavailable; using loader identity", error);
         }
+    }
+
+    private void startApiDiagnosticNotifier() {
+        diagnosticHandler = new Handler(Looper.getMainLooper());
+        lastDiagnosticChangeAt = SystemClock.elapsedRealtime();
+        diagnosticHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String status = NativeBridge.getMamoBallAuthDiagnosticStatus();
+                    if (status == null) status = "";
+                    long now = SystemClock.elapsedRealtime();
+                    boolean changed = !status.equals(lastDiagnosticStatus);
+                    if (changed) {
+                        lastDiagnosticStatus = status;
+                        lastDiagnosticChangeAt = now;
+                        Log.i(TAG, "API diagnostic: " + status);
+                        if (isImportantApiStatus(status)) {
+                            showDiagnosticToast(status);
+                            lastPendingRepeatAt = now;
+                        }
+                    } else if (status.contains("GUEST_REGISTER")
+                            && status.contains("aguardando resposta")
+                            && now - lastPendingRepeatAt >= 4500L) {
+                        showDiagnosticToast(status + "\nSEM RESPOSTA ha mais de 4s");
+                        lastPendingRepeatAt = now;
+                    } else if (status.contains("GET_CONFIG")
+                            && now - lastDiagnosticChangeAt >= 5500L
+                            && now - lastPendingRepeatAt >= 5500L) {
+                        showDiagnosticToast(status + "\nNenhuma etapa de login apareceu depois disso");
+                        lastPendingRepeatAt = now;
+                    }
+                } catch (Throwable error) {
+                    Log.w(TAG, "API diagnostic notifier failed", error);
+                } finally {
+                    diagnosticHandler.postDelayed(this, 650L);
+                }
+            }
+        });
+    }
+
+    private static boolean isImportantApiStatus(String status) {
+        return status.contains("GET_CONFIG")
+                || status.contains("GUEST_REGISTER")
+                || status.contains("REFRESH_TOKEN")
+                || status.contains("LOGIN_WITH_SOCIAL")
+                || status.startsWith("ERROR:");
+    }
+
+    private void showDiagnosticToast(String status) {
+        Context context = hostBaseContext != null ? hostBaseContext : this;
+        if (diagnosticToast != null) diagnosticToast.cancel();
+        diagnosticToast = Toast.makeText(context, "MAMO API DIAG\n" + status, Toast.LENGTH_LONG);
+        diagnosticToast.show();
     }
 
     private void logSigningIdentity() {
