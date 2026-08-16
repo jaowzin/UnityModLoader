@@ -1,12 +1,18 @@
 package dev.unitymodloader.app;
 
 import android.content.Context;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageManager;
+import android.util.Log;
 
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
 
 public final class GameProfileManager {
+    private static final String TAG = "UML.Profile";
+    private static final String MAMO_BALL_PACKAGE = "com.alberun.mamoball";
+
     private GameProfileManager() {}
 
     public static File root(Context context, InstalledUnityGame game) {
@@ -34,6 +40,12 @@ public final class GameProfileManager {
         boolean ok = ensure(root) && ensure(plugins) && ensure(config) && ensure(logs);
         if (!ok) return false;
 
+        String apiDiag = "not-applicable";
+        if (MAMO_BALL_PACKAGE.equals(game.getPackageName())) {
+            apiDiag = prepareMamoBallApiDiagnostics(context);
+            Log.i(TAG, "Mamo Ball API diagnostics: " + apiDiag);
+        }
+
         File profile = new File(root, "profile.properties");
         try (FileWriter writer = new FileWriter(profile, false)) {
             writer.write("package=" + game.getPackageName() + "\n");
@@ -42,10 +54,26 @@ public final class GameProfileManager {
             writer.write("apkCount=" + game.getApkPaths().size() + "\n");
             writer.write("architectures=" + String.join(",", game.getDetection().getArchitectures()) + "\n");
             writer.write("identityMode=loader-only-target-context\n");
+            writer.write("apiDiagnostics=" + apiDiag.replace("\n", " ") + "\n");
         } catch (IOException e) {
             return false;
         }
-        return true;
+        return !apiDiag.startsWith("ERROR:");
+    }
+
+    private static String prepareMamoBallApiDiagnostics(Context context) {
+        try {
+            PackageManager pm = context.getPackageManager();
+            @SuppressWarnings("deprecation")
+            ApplicationInfo info = pm.getApplicationInfo(MAMO_BALL_PACKAGE, 0);
+            if (info.nativeLibraryDir == null || info.nativeLibraryDir.isEmpty()) {
+                return "ERROR: nativeLibraryDir do Mamo Ball vazio";
+            }
+            return NativeBridge.prepareMamoBallAuthDiagnostic(info.nativeLibraryDir);
+        } catch (Throwable error) {
+            return "ERROR: API diag: " + error.getClass().getSimpleName()
+                    + ": " + String.valueOf(error.getMessage());
+        }
     }
 
     private static boolean ensure(File dir) {
