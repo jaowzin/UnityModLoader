@@ -15,11 +15,10 @@ import java.util.Locale;
 /**
  * Loader-only identity bridge for the authorized Mamo Ball CTF target.
  *
- * The hosted Unity activity already exposes the target package/resources. Some
- * Android/Google SDKs immediately switch to activity.getApplicationContext(),
- * which normally leaks the loader package again. This Application keeps that
- * local application-context identity aligned with the installed, untouched
- * Mamo Ball APK. It does not change Binder/Linux UID and does not modify the ROM.
+ * Local package/resource/signing queries are pointed at the installed original
+ * Mamo Ball APK. Binder-facing operation attribution deliberately stays on the
+ * loader package/UID, because Android system services validate callingPackage
+ * against Binder.getCallingUid().
  */
 public final class LocalIdentityApplication extends Application {
     private static final String TAG = "UML.LocalIdentity";
@@ -27,6 +26,8 @@ public final class LocalIdentityApplication extends Application {
 
     private Context targetContext;
     private ApplicationInfo targetApplicationInfo;
+    private String hostOpPackageName;
+    private int hostUid;
 
     @Override
     public void onCreate() {
@@ -36,30 +37,37 @@ public final class LocalIdentityApplication extends Application {
 
     private void initializeTargetIdentity() {
         try {
+            // Capture Binder-safe host identity before exposing target-local identity.
+            hostOpPackageName = super.getOpPackageName();
+            ApplicationInfo hostInfo = super.getApplicationInfo();
+            hostUid = hostInfo.uid;
+
             targetContext = createPackageContext(
                     TARGET_PACKAGE,
                     Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY
             );
 
             ApplicationInfo targetInfo = targetContext.getApplicationInfo();
-            ApplicationInfo hostInfo = super.getApplicationInfo();
             targetApplicationInfo = new ApplicationInfo(targetInfo);
 
-            // Preserve the real target identity/source paths, but writable data must
-            // remain inside the loader's sandbox.
+            // Source/resources remain the real target APK. Runtime-owned fields must
+            // remain compatible with the loader process and its writable sandbox.
+            targetApplicationInfo.uid = hostUid;
             targetApplicationInfo.dataDir = hostInfo.dataDir;
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 targetApplicationInfo.deviceProtectedDataDir = hostInfo.deviceProtectedDataDir;
             }
 
             logSigningIdentity();
-            Log.i(TAG, "Local identity ready: package=" + TARGET_PACKAGE
-                    + "; opPackage=" + getOpPackageName()
-                    + "; reportedUid=" + targetApplicationInfo.uid
-                    + "; realProcessUid=" + android.os.Process.myUid());
+            Log.i(TAG, "Split identity ready: localPackage=" + TARGET_PACKAGE
+                    + "; binderOpPackage=" + getOpPackageName()
+                    + "; runtimeUid=" + hostUid
+                    + "; processUid=" + android.os.Process.myUid());
         } catch (Throwable error) {
             targetContext = null;
             targetApplicationInfo = null;
+            hostOpPackageName = null;
+            hostUid = 0;
             Log.w(TAG, "Target identity unavailable; using loader identity", error);
         }
     }
@@ -118,7 +126,9 @@ public final class LocalIdentityApplication extends Application {
 
     @Override
     public String getOpPackageName() {
-        return hasTarget() ? TARGET_PACKAGE : super.getOpPackageName();
+        // ActivityThread.currentOpPackageName() feeds several Binder system APIs
+        // (including StorageManager). It MUST belong to Process.myUid().
+        return hostOpPackageName != null ? hostOpPackageName : super.getOpPackageName();
     }
 
     @Override
