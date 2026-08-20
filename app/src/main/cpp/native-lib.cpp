@@ -19,17 +19,14 @@ constexpr const char* kTag = "UML.MamoBall";
 constexpr const char* kIl2CppName = "libil2cpp.so";
 
 // Mamo Ball 4.6.15 / Unity 6000.0.59f2 / IL2CPP / ARM64.
-//
 // BallController.Kick(..., float kickStrength)
-// RVA 0x2C9AC24: fmov s8, s2  -> fadd s8, s2, s2
-// This doubles the kickStrength argument while leaving the remaining kick logic intact.
+// RVA 0x2C9AC24: fmov s8, s2 -> fadd s8, s2, s2
 constexpr uintptr_t kSuperKickRva = 0x2C9AC24;
 constexpr uint32_t kSuperKickExpected = 0x1E204048;
 constexpr uint32_t kSuperKickPatch = 0x1E222848;
 
 // PlayerController.ApplyJoystickState()
 // RVA 0x2CCAFC4: fmov s8, s0 -> fadd s8, s0, s0
-// s0 is the decrypted playerSpeed/sprintSpeed value, so both movement modes become 2x.
 constexpr uintptr_t kSuperSpeedRva = 0x2CCAFC4;
 constexpr uint32_t kSuperSpeedExpected = 0x1E204008;
 constexpr uint32_t kSuperSpeedPatch = 0x1E202808;
@@ -53,8 +50,8 @@ std::string toString(JNIEnv* env, jstring value) {
 }
 
 bool endsWith(const std::string& value, const std::string& suffix) {
-    return value.size() >= suffix.size() &&
-           value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
+    return value.size() >= suffix.size()
+            && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
 
 std::vector<std::string> findPlugins(const std::string& directory) {
@@ -208,7 +205,7 @@ std::string setSuperSpeed(bool enabled) {
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_dev_unitymodloader_app_NativeBridge_coreVersion(JNIEnv* env, jclass) {
-    return env->NewStringUTF("umlcore/0.7.0-mamoball");
+    return env->NewStringUTF("umlcore/0.7.8-mamoball-obb");
 }
 
 extern "C"
@@ -227,8 +224,6 @@ Java_dev_unitymodloader_app_NativeBridge_setMamoBallSuperSpeed(
     return env->NewStringUTF(result.c_str());
 }
 
-// Legacy Fire Zone overlay stub. The old source file remains in the tree but is not
-// activated by the Mamo Ball launcher.
 extern "C"
 JNIEXPORT jfloatArray JNICALL
 Java_dev_unitymodloader_app_NativeBridge_getFireZoneEspTargets(JNIEnv* env, jclass) {
@@ -261,8 +256,8 @@ Java_dev_unitymodloader_app_NativeBridge_loadNativePlugins(
         void* handle = dlopen(path.c_str(), RTLD_NOW | RTLD_GLOBAL);
         if (handle == nullptr) {
             const char* error = dlerror();
-            const std::string line = "ERRO " + name + ": " +
-                    (error != nullptr ? error : "dlopen falhou");
+            const std::string line = "ERRO " + name + ": "
+                    + (error != nullptr ? error : "dlopen falhou");
             appendLine(report, line);
             __android_log_print(ANDROID_LOG_ERROR, kTag, "%s", line.c_str());
             continue;
