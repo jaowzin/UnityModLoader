@@ -20,6 +20,11 @@
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.Light.NoActionBar">
 
+        <!-- Required by Google Play Services / Google Sign-In. -->
+        <meta-data
+            android:name="com.google.android.gms.version"
+            android:value="@integer/google_play_services_version" />
+
         <provider
             android:name="rikka.shizuku.ShizukuProvider"
             android:authorities="${applicationId}.shizuku"
