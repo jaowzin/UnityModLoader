@@ -8,10 +8,7 @@ import android.content.pm.ApplicationInfo;
 import android.content.res.AssetManager;
 import android.content.res.Configuration;
 import android.content.res.Resources;
-import android.graphics.Color;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -21,17 +18,21 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 import java.lang.reflect.Constructor;
-import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.util.Arrays;
 import java.util.Comparator;
 
-/** Hosted Unity activity for the authorized Mamo Ball CTF target. */
+/**
+ * Hosted Unity activity for the authorized Mamo Ball CTF target.
+ *
+ * This build keeps the game's original boot/auth flow intact. The only context
+ * translation performed by the host is what is required to run the installed
+ * Unity APK in the loader process: target APK/resources/native libs/OBB are
+ * exposed, while writable private storage remains in the loader sandbox.
+ */
 public final class GameHostActivity extends Activity {
     public static final String EXTRA_TARGET_PACKAGE = "target_package";
 
@@ -43,16 +44,12 @@ public final class GameHostActivity extends Activity {
             "com.unity3d.player.UnityPlayer"
     };
 
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
     private Context installedGameContext;
     private GameContextBridge bridge;
     private Object unityPlayer;
     private View unityView;
     private String targetPackage;
     private TextView bootStatus;
-    private TextView diagnosticOverlay;
-    private long hostedStartedAt;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -139,9 +136,6 @@ public final class GameHostActivity extends Activity {
                 FrameLayout.LayoutParams.MATCH_PARENT));
         setContentView(hostedRoot);
 
-        installDiagnostics(hostedRoot);
-        scheduleBootstrapLifecyclePulse(hostedRoot);
-
         File pluginDir = new File(
                 super.getExternalFilesDir(null),
                 "games/" + targetPackage + "/plugins"
@@ -162,86 +156,6 @@ public final class GameHostActivity extends Activity {
 
         Log.i(TAG, "Hosted Unity started for " + targetPackage
                 + " using " + playerClass.getName());
-    }
-
-    private void installDiagnostics(FrameLayout root) {
-        hostedStartedAt = System.currentTimeMillis();
-
-        diagnosticOverlay = new TextView(this);
-        diagnosticOverlay.setTextSize(10f);
-        diagnosticOverlay.setTextColor(Color.WHITE);
-        diagnosticOverlay.setBackgroundColor(0x99000000);
-        diagnosticOverlay.setPadding(dp(7), dp(5), dp(7), dp(5));
-
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP | Gravity.START
-        );
-        params.setMargins(dp(6), dp(6), 0, 0);
-        root.addView(diagnosticOverlay, params);
-
-        Runnable updater = new Runnable() {
-            @Override
-            public void run() {
-                TextView overlay = diagnosticOverlay;
-                if (overlay == null || isFinishing()) return;
-
-                long elapsed = Math.max(0L, System.currentTimeMillis() - hostedStartedAt);
-                int identityHits = bridge == null ? 0 : bridge.getGoogleIdentityHits();
-                String caller = bridge == null ? "none" : simpleClassName(bridge.getLastGoogleCaller());
-                overlay.setText(
-                        "UML 0.8.6 DIAG"
-                                + "\nUnity: " + (unityPlayer != null ? "OK" : "WAIT")
-                                + "  IL2CPP: " + (isLibraryMapped("libil2cpp.so") ? "OK" : "WAIT")
-                                + "\nFocus: " + hasWindowFocus()
-                                + "  GMS host hits: " + identityHits
-                                + "\nGMS caller: " + caller
-                                + "\nTempo: " + (elapsed / 1000L) + "s"
-                );
-
-                if (elapsed < 30000L) {
-                    mainHandler.postDelayed(this, 1000L);
-                } else {
-                    overlay.setVisibility(View.GONE);
-                }
-            }
-        };
-        mainHandler.post(updater);
-    }
-
-    private void scheduleBootstrapLifecyclePulse(FrameLayout root) {
-        root.postDelayed(() -> {
-            if (unityPlayer == null || isFinishing()) return;
-            Log.i(TAG, "Bootstrap lifecycle recovery pulse: resume/focus");
-            invokeUnityAny("onResume", "resume");
-            if (hasWindowFocus()) {
-                invokeUnity("windowFocusChanged", new Class<?>[]{boolean.class}, true);
-            }
-        }, 1200L);
-
-        root.postDelayed(() -> {
-            if (unityPlayer == null || isFinishing() || !hasWindowFocus()) return;
-            Log.i(TAG, "Bootstrap focus recovery pulse");
-            invokeUnity("windowFocusChanged", new Class<?>[]{boolean.class}, true);
-        }, 3500L);
-    }
-
-    private boolean isLibraryMapped(String libraryName) {
-        try (BufferedReader reader = new BufferedReader(new FileReader("/proc/self/maps"))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains(libraryName)) return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
-
-    private static String simpleClassName(String value) {
-        if (value == null || value.isEmpty()) return "none";
-        int index = value.lastIndexOf('.');
-        return index >= 0 && index + 1 < value.length() ? value.substring(index + 1) : value;
     }
 
     private Class<?> findUnityPlayerClass(ClassLoader loader) throws ClassNotFoundException {
@@ -313,6 +227,8 @@ public final class GameHostActivity extends Activity {
         Constructor<?> constructor = playerClass.getDeclaredConstructor(Context.class, lifecycleType);
         constructor.setAccessible(true);
 
+        // Unity 6 needs the Activity itself. Activity-level OBB/resource overrides below
+        // make this Context resolve expansion files from the installed target package.
         Object value = constructor.newInstance(this, lifecycleProxy);
         Log.i(TAG, "Unity 6 Activity constructor selected: " + constructor);
         return value;
@@ -440,8 +356,6 @@ public final class GameHostActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        diagnosticOverlay = null;
-        mainHandler.removeCallbacksAndMessages(null);
         if (!invokeUnity("destroy", new Class<?>[0])) {
             if (!invokeUnity("quit", new Class<?>[0])) {
                 invokeUnity("shutdown", new Class<?>[0]);
@@ -477,87 +391,82 @@ public final class GameHostActivity extends Activity {
         invokeUnity("newIntent", new Class<?>[]{Intent.class}, intent);
     }
 
-    @Override public AssetManager getAssets() {
+    @Override
+    public AssetManager getAssets() {
         return bridge != null ? bridge.getAssets() : super.getAssets();
     }
 
-    @Override public Resources getResources() {
+    @Override
+    public Resources getResources() {
         return bridge != null ? bridge.getResources() : super.getResources();
     }
 
-    @Override public ClassLoader getClassLoader() {
+    @Override
+    public ClassLoader getClassLoader() {
         return bridge != null ? bridge.getClassLoader() : super.getClassLoader();
     }
 
-    @Override public ApplicationInfo getApplicationInfo() {
+    @Override
+    public ApplicationInfo getApplicationInfo() {
         return bridge != null ? bridge.getApplicationInfo() : super.getApplicationInfo();
     }
 
-    @Override public String getPackageName() {
+    @Override
+    public String getPackageName() {
         return bridge != null ? bridge.getPackageName() : super.getPackageName();
     }
 
-    @Override public String getPackageCodePath() {
+    @Override
+    public String getPackageCodePath() {
         return bridge != null ? bridge.getPackageCodePath() : super.getPackageCodePath();
     }
 
-    @Override public String getPackageResourcePath() {
+    @Override
+    public String getPackageResourcePath() {
         return bridge != null ? bridge.getPackageResourcePath() : super.getPackageResourcePath();
     }
 
-    @Override public File getObbDir() {
+    @Override
+    public File getObbDir() {
         return bridge != null ? bridge.getObbDir() : super.getObbDir();
     }
 
-    @Override public File[] getObbDirs() {
+    @Override
+    public File[] getObbDirs() {
         return bridge != null ? bridge.getObbDirs() : super.getObbDirs();
     }
 
-    @Override public File getFilesDir() {
+    @Override
+    public File getFilesDir() {
         return bridge != null ? bridge.getFilesDir() : super.getFilesDir();
     }
 
-    @Override public File getCacheDir() {
+    @Override
+    public File getCacheDir() {
         return bridge != null ? bridge.getCacheDir() : super.getCacheDir();
     }
 
-    @Override public File getExternalFilesDir(String type) {
+    @Override
+    public File getExternalFilesDir(String type) {
+        // Writable external data belongs to the loader, unlike read-only target OBB.
         return super.getExternalFilesDir(type);
     }
 
-    @Override public SharedPreferences getSharedPreferences(String name, int mode) {
+    @Override
+    public SharedPreferences getSharedPreferences(String name, int mode) {
         return bridge != null ? bridge.getSharedPreferences(name, mode) : super.getSharedPreferences(name, mode);
     }
 
     private void showFatal(String message, Throwable error) {
-        Throwable root = unwrap(error);
-        Log.e(TAG, message, root == null ? error : root);
-
+        Log.e(TAG, message, error);
         TextView text = new TextView(this);
-        String details = "";
-        if (root != null) {
-            details = "\n\n" + root.getClass().getSimpleName() + ": " + root.getMessage();
-        }
+        String details = error == null ? "" : "\n\n"
+                + error.getClass().getSimpleName() + ": " + error.getMessage();
         text.setText(message + details + "\n\nVolte ao Mamo Ball Mod Core.");
         text.setTextSize(16f);
         text.setGravity(Gravity.CENTER);
         text.setPadding(dp(24), dp(24), dp(24), dp(24));
         setContentView(text);
-    }
-
-    private static Throwable unwrap(Throwable error) {
-        Throwable current = error;
-        for (int i = 0; i < 8 && current != null; i++) {
-            if (current instanceof InvocationTargetException
-                    && ((InvocationTargetException) current).getTargetException() != null) {
-                current = ((InvocationTargetException) current).getTargetException();
-                continue;
-            }
-            Throwable cause = current.getCause();
-            if (cause == null || cause == current) break;
-            current = cause;
-        }
-        return current;
     }
 
     private int dp(int value) {
