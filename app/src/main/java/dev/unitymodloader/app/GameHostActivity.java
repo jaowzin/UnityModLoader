@@ -22,29 +22,24 @@ import java.io.File;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
-import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.List;
 
 /**
- * Experimental Unity host.
+ * Hosted Unity activity for the authorized Mamo Ball CTF target.
  *
- * Fire Zone (com.sfcgs.gun.terrorist.shooting.missions) was inspected directly:
- * Unity 6000.0.68f1, ARM64, IL2CPP. Its launcher UnityPlayerActivity creates
- * UnityPlayerForActivityOrService(Context, IUnityPlayerLifecycleEvents), not the
- * older UnityPlayer(Context) shape. This host mirrors that path first.
+ * This build keeps the game's original boot/auth flow intact. The only context
+ * translation performed by the host is what is required to run the installed
+ * Unity APK in the loader process: target APK/resources/native libs/OBB are
+ * exposed, while writable private storage remains in the loader sandbox.
  */
 public final class GameHostActivity extends Activity {
     public static final String EXTRA_TARGET_PACKAGE = "target_package";
-    public static final String EXTRA_ESP_HOLOGRAM = "esp_hologram";
+
     private static final String TAG = "UML.GameHost";
-
-    private static final String FIRE_ZONE_PACKAGE = "com.sfcgs.gun.terrorist.shooting.missions";
-    private static final String UNITY6_ACTIVITY_PLAYER = "com.unity3d.player.UnityPlayerForActivityOrService";
-
+    private static final String UNITY6_ACTIVITY_PLAYER =
+            "com.unity3d.player.UnityPlayerForActivityOrService";
     private static final String[] UNITY_PLAYER_CLASSES = {
-            // Unity 6 Activity path first. Fire Zone uses this class directly.
             UNITY6_ACTIVITY_PLAYER,
             "com.unity3d.player.UnityPlayer"
     };
@@ -53,7 +48,6 @@ public final class GameHostActivity extends Activity {
     private GameContextBridge bridge;
     private Object unityPlayer;
     private View unityView;
-    private EspOverlayView espOverlayView;
     private String targetPackage;
     private TextView bootStatus;
 
@@ -80,12 +74,10 @@ public final class GameHostActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
 
         ProgressBar progress = new ProgressBar(this);
-        FrameLayout.LayoutParams progressParams = new FrameLayout.LayoutParams(
+        root.addView(progress, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.WRAP_CONTENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.CENTER
-        );
-        root.addView(progress, progressParams);
+                Gravity.CENTER));
 
         bootStatus = new TextView(this);
         bootStatus.setText(message);
@@ -93,12 +85,10 @@ public final class GameHostActivity extends Activity {
         bootStatus.setGravity(Gravity.CENTER);
         int pad = dp(24);
         bootStatus.setPadding(pad, pad, pad, pad);
-        FrameLayout.LayoutParams textParams = new FrameLayout.LayoutParams(
+        root.addView(bootStatus, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM
-        );
-        root.addView(bootStatus, textParams);
+                Gravity.BOTTOM));
         setContentView(root);
     }
 
@@ -109,11 +99,13 @@ public final class GameHostActivity extends Activity {
         );
         bridge = new GameContextBridge(installedGameContext, this);
 
-        Log.i(TAG, "Target context paths: package=" + getPackageName()
-                + "; code=" + getPackageCodePath()
-                + "; resources=" + getPackageResourcePath()
-                + "; sourceDir=" + getApplicationInfo().sourceDir
-                + "; dataDir=" + getApplicationInfo().dataDir);
+        File obbDir = bridge.getObbDir();
+        Log.i(TAG, "Target paths: package=" + bridge.getPackageName()
+                + "; code=" + bridge.getPackageCodePath()
+                + "; resources=" + bridge.getPackageResourcePath()
+                + "; nativeLibDir=" + bridge.getApplicationInfo().nativeLibraryDir
+                + "; obbDir=" + (obbDir == null ? "null" : obbDir.getAbsolutePath())
+                + "; obbExists=" + (obbDir != null && obbDir.exists()));
 
         ClassLoader gameLoader = installedGameContext.getClassLoader();
         if (gameLoader == null) {
@@ -123,19 +115,16 @@ public final class GameHostActivity extends Activity {
 
         Class<?> playerClass = findUnityPlayerClass(gameLoader);
         if (bootStatus != null) {
-            String suffix = FIRE_ZONE_PACKAGE.equals(targetPackage)
-                    ? " (Fire Zone / Unity 6000.0.68f1)"
-                    : "";
-            bootStatus.setText("Unity encontrado: " + playerClass.getName() + suffix);
+            bootStatus.setText("Unity encontrado: " + playerClass.getName()
+                    + "\nOBB: " + (obbDir == null ? "não localizado" : obbDir.getAbsolutePath()));
         }
 
         unityPlayer = constructUnityPlayer(playerClass);
         unityView = extractUnityView(unityPlayer);
         if (unityView == null) {
             throw new IllegalStateException(
-                    "Unity foi criado, mas nenhuma View/FrameLayout compatível foi encontrada em "
-                            + unityPlayer.getClass().getName()
-            );
+                    "Unity foi criado, mas nenhuma View compatível foi encontrada em "
+                            + unityPlayer.getClass().getName());
         }
 
         unityView.setFocusableInTouchMode(true);
@@ -145,21 +134,10 @@ public final class GameHostActivity extends Activity {
         hostedRoot.addView(unityView, new FrameLayout.LayoutParams(
                 FrameLayout.LayoutParams.MATCH_PARENT,
                 FrameLayout.LayoutParams.MATCH_PARENT));
-
-        boolean espEnabled = FIRE_ZONE_PACKAGE.equals(targetPackage)
-                && getIntent().getBooleanExtra(EXTRA_ESP_HOLOGRAM, false);
-        if (espEnabled) {
-            espOverlayView = new EspOverlayView(this);
-            hostedRoot.addView(espOverlayView, new FrameLayout.LayoutParams(
-                    FrameLayout.LayoutParams.MATCH_PARENT,
-                    FrameLayout.LayoutParams.MATCH_PARENT));
-            Log.i(TAG, "Fire Zone hologram ESP overlay enabled");
-        }
-
         setContentView(hostedRoot);
 
         File pluginDir = new File(
-                getExternalFilesDir(null),
+                super.getExternalFilesDir(null),
                 "games/" + targetPackage + "/plugins"
         );
         if (!pluginDir.isDirectory()) {
@@ -177,31 +155,25 @@ public final class GameHostActivity extends Activity {
         }
 
         Log.i(TAG, "Hosted Unity started for " + targetPackage
-                + " using " + playerClass.getName()
-                + "; nativeLibDir=" + installedGameContext.getApplicationInfo().nativeLibraryDir);
+                + " using " + playerClass.getName());
     }
 
     private Class<?> findUnityPlayerClass(ClassLoader loader) throws ClassNotFoundException {
-        List<String> errors = new ArrayList<>();
         for (String candidate : UNITY_PLAYER_CLASSES) {
             try {
                 return Class.forName(candidate, true, loader);
-            } catch (ClassNotFoundException e) {
-                errors.add(candidate);
+            } catch (ClassNotFoundException ignored) {
             }
         }
-        throw new ClassNotFoundException("Nenhuma classe UnityPlayer encontrada: " + errors);
+        throw new ClassNotFoundException("Nenhuma classe UnityPlayer encontrada");
     }
 
     private Object constructUnityPlayer(Class<?> playerClass) throws Exception {
-        // Fire Zone / Unity 6 exact launcher path:
-        // new UnityPlayerForActivityOrService(this, thisLifecycleEvents)
         if (UNITY6_ACTIVITY_PLAYER.equals(playerClass.getName())) {
-            Object unity6 = constructUnity6ActivityPlayer(playerClass);
-            if (unity6 != null) return unity6;
+            Object value = constructUnity6ActivityPlayer(playerClass);
+            if (value != null) return value;
         }
 
-        // Fallback for older/different Unity versions.
         Constructor<?>[] constructors = playerClass.getDeclaredConstructors();
         Arrays.sort(constructors, Comparator.comparingInt(Constructor::getParameterCount));
 
@@ -209,7 +181,6 @@ public final class GameHostActivity extends Activity {
         for (Constructor<?> constructor : constructors) {
             Object[] args = buildConstructorArguments(constructor.getParameterTypes());
             if (args == null) continue;
-
             try {
                 constructor.setAccessible(true);
                 Object value = constructor.newInstance(args);
@@ -222,8 +193,7 @@ public final class GameHostActivity extends Activity {
         }
 
         IllegalStateException failure = new IllegalStateException(
-                "Nenhum construtor UnityPlayer compatível foi encontrado"
-        );
+                "Nenhum construtor UnityPlayer compatível foi encontrado");
         if (lastError != null) failure.initCause(lastError);
         throw failure;
     }
@@ -239,19 +209,16 @@ public final class GameHostActivity extends Activity {
         Object lifecycleProxy = Proxy.newProxyInstance(
                 loader,
                 new Class<?>[]{lifecycleType},
-                (proxy, method, methodArgs) -> {
+                (proxy, method, args) -> {
                     String name = method.getName();
                     if ("onUnityPlayerQuitted".equals(name)) {
-                        Log.i(TAG, "Unity lifecycle: onUnityPlayerQuitted");
                         runOnUiThread(this::finish);
-                    } else if ("onUnityPlayerUnloaded".equals(name)) {
-                        Log.i(TAG, "Unity lifecycle: onUnityPlayerUnloaded");
                     } else if ("toString".equals(name)) {
-                        return "UnityModLoaderLifecycleProxy";
+                        return "MamoBallLoaderLifecycle";
                     } else if ("hashCode".equals(name)) {
                         return System.identityHashCode(proxy);
                     } else if ("equals".equals(name)) {
-                        return methodArgs != null && methodArgs.length == 1 && proxy == methodArgs[0];
+                        return args != null && args.length == 1 && proxy == args[0];
                     }
                     return defaultValue(method.getReturnType());
                 }
@@ -260,8 +227,8 @@ public final class GameHostActivity extends Activity {
         Constructor<?> constructor = playerClass.getDeclaredConstructor(Context.class, lifecycleType);
         constructor.setAccessible(true);
 
-        // The real Fire Zone UnityPlayerActivity passes the Activity itself as Context.
-        // Our Activity exposes the target game's resources/classloader/APK path through overrides.
+        // Unity 6 needs the Activity itself. Activity-level OBB/resource overrides below
+        // make this Context resolve expansion files from the installed target package.
         Object value = constructor.newInstance(this, lifecycleProxy);
         Log.i(TAG, "Unity 6 Activity constructor selected: " + constructor);
         return value;
@@ -275,51 +242,35 @@ public final class GameHostActivity extends Activity {
 
         for (int i = 0; i < types.length; i++) {
             Class<?> type = types[i];
-
-            // Prefer the Activity for Context because modern Unity checks Activity features.
             if (type.isInstance(this)) {
                 args[i] = this;
                 hasContext = true;
-                continue;
-            }
-            if (type.isInstance(bridge)) {
+            } else if (bridge != null && type.isInstance(bridge)) {
                 args[i] = bridge;
                 hasContext = true;
-                continue;
-            }
-            if (Context.class.isAssignableFrom(type)) {
+            } else if (Context.class.isAssignableFrom(type)) {
                 if (type.isAssignableFrom(getClass())) {
                     args[i] = this;
                     hasContext = true;
-                    continue;
-                }
-                if (type.isAssignableFrom(bridge.getClass())) {
+                } else if (bridge != null && type.isAssignableFrom(bridge.getClass())) {
                     args[i] = bridge;
                     hasContext = true;
-                    continue;
+                } else {
+                    return null;
                 }
-                return null;
-            }
-            if (type.isInterface() && type.getName().contains("IUnityPlayerLifecycleEvents")) {
+            } else if (type.isInterface() && type.getName().contains("IUnityPlayerLifecycleEvents")) {
                 args[i] = Proxy.newProxyInstance(
                         installedGameContext.getClassLoader(),
                         new Class<?>[]{type},
-                        (proxy, method, methodArgs) -> defaultValue(method.getReturnType())
-                );
-                continue;
-            }
-            if (type.isPrimitive()) {
+                        (proxy, method, methodArgs) -> defaultValue(method.getReturnType()));
+            } else if (type.isPrimitive()) {
                 args[i] = defaultValue(type);
-                continue;
-            }
-            if (type == String.class) {
+            } else if (type == String.class) {
                 args[i] = "";
-                continue;
+            } else {
+                args[i] = null;
             }
-
-            args[i] = null;
         }
-
         return hasContext ? args : null;
     }
 
@@ -332,13 +283,8 @@ public final class GameHostActivity extends Activity {
                 Method method = player.getClass().getMethod(methodName);
                 method.setAccessible(true);
                 Object value = method.invoke(player);
-                if (value instanceof View) {
-                    Log.i(TAG, "Unity view selected via " + methodName + "(): "
-                            + value.getClass().getName());
-                    return (View) value;
-                }
-            } catch (Throwable error) {
-                Log.d(TAG, "Unity view method unavailable: " + methodName, error);
+                if (value instanceof View) return (View) value;
+            } catch (Throwable ignored) {
             }
         }
         return null;
@@ -415,7 +361,6 @@ public final class GameHostActivity extends Activity {
                 invokeUnity("shutdown", new Class<?>[0]);
             }
         }
-        espOverlayView = null;
         unityPlayer = null;
         unityView = null;
         super.onDestroy();
@@ -436,8 +381,6 @@ public final class GameHostActivity extends Activity {
     @Override
     public void onLowMemory() {
         super.onLowMemory();
-        // Older UnityPlayer exposes lowMemory(). Unity 6 uses onTrimMemory(enum),
-        // so no fake enum is injected here.
         invokeUnity("lowMemory", new Class<?>[0]);
     }
 
@@ -448,45 +391,6 @@ public final class GameHostActivity extends Activity {
         invokeUnity("newIntent", new Class<?>[]{Intent.class}, intent);
     }
 
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        Object player = unityPlayer;
-        if (player == null) return;
-        try {
-            Method method = player.getClass().getMethod(
-                    "permissionResponse",
-                    Activity.class,
-                    int.class,
-                    String[].class,
-                    int[].class
-            );
-            method.invoke(player, this, requestCode, permissions, grantResults);
-        } catch (NoSuchMethodException ignored) {
-            // Older Unity versions may handle this differently.
-        } catch (Throwable error) {
-            Log.w(TAG, "Unity permissionResponse failed", error);
-        }
-    }
-
-    private void showFatal(String message, Throwable error) {
-        Log.e(TAG, message, error);
-        TextView text = new TextView(this);
-        String details = error == null ? "" : "\n\n" + error.getClass().getSimpleName() + ": " + error.getMessage();
-        String targetHint = FIRE_ZONE_PACKAGE.equals(targetPackage)
-                ? "\n\nPerfil: Fire Zone / Unity 6000.0.68f1 / IL2CPP ARM64"
-                : "";
-        text.setText(message + details + targetHint + "\n\nVolte ao Unity Mod Loader.");
-        text.setTextSize(16f);
-        text.setGravity(Gravity.CENTER);
-        text.setPadding(dp(24), dp(24), dp(24), dp(24));
-        setContentView(text);
-    }
-
-    /*
-     * Expose the installed game's resources/code/native-library metadata while
-     * writable storage remains inside UnityModLoader's own sandbox.
-     */
     @Override
     public AssetManager getAssets() {
         return bridge != null ? bridge.getAssets() : super.getAssets();
@@ -523,6 +427,16 @@ public final class GameHostActivity extends Activity {
     }
 
     @Override
+    public File getObbDir() {
+        return bridge != null ? bridge.getObbDir() : super.getObbDir();
+    }
+
+    @Override
+    public File[] getObbDirs() {
+        return bridge != null ? bridge.getObbDirs() : super.getObbDirs();
+    }
+
+    @Override
     public File getFilesDir() {
         return bridge != null ? bridge.getFilesDir() : super.getFilesDir();
     }
@@ -534,12 +448,25 @@ public final class GameHostActivity extends Activity {
 
     @Override
     public File getExternalFilesDir(String type) {
+        // Writable external data belongs to the loader, unlike read-only target OBB.
         return super.getExternalFilesDir(type);
     }
 
     @Override
     public SharedPreferences getSharedPreferences(String name, int mode) {
         return bridge != null ? bridge.getSharedPreferences(name, mode) : super.getSharedPreferences(name, mode);
+    }
+
+    private void showFatal(String message, Throwable error) {
+        Log.e(TAG, message, error);
+        TextView text = new TextView(this);
+        String details = error == null ? "" : "\n\n"
+                + error.getClass().getSimpleName() + ": " + error.getMessage();
+        text.setText(message + details + "\n\nVolte ao Mamo Ball Mod Core.");
+        text.setTextSize(16f);
+        text.setGravity(Gravity.CENTER);
+        text.setPadding(dp(24), dp(24), dp(24), dp(24));
+        setContentView(text);
     }
 
     private int dp(int value) {
