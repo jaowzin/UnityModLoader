@@ -10,18 +10,26 @@ import android.content.res.Resources;
 import android.os.Build;
 import android.util.Log;
 
-import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileReader;
 
 /** Exposes Mamo code/resources while keeping loader-owned writable runtime state. */
 final class GameContextBridge extends ContextWrapper {
     private static final String TAG = "UML.GameContext";
 
+    private static final String[] HOST_IDENTITY_CALLERS = {
+            "com.google.android.gms.",
+            "com.google.games.",
+            "com.google.firebase.",
+            "com.google.android.play.",
+            "com.google.android.libraries.",
+            "com.google.android.datatransport."
+    };
+
     private final Context gameContext;
     private final Context hostContext;
     private final ApplicationInfo bridgedApplicationInfo;
-    private volatile boolean postBootstrapIdentity;
+    private volatile int googleIdentityHits;
+    private volatile String lastGoogleCaller = "none";
 
     GameContextBridge(Context gameContext, Context hostContext) {
         super(gameContext);
@@ -33,8 +41,8 @@ final class GameContextBridge extends ContextWrapper {
         ApplicationInfo hostInfo = this.hostContext.getApplicationInfo();
         bridgedApplicationInfo = new ApplicationInfo(gameInfo);
 
-        // Unity bootstrap expects the target package/application metadata, but any
-        // writable path and the Linux uid must remain owned by the loader process.
+        // Unity bootstrap expects target APK metadata, but writable storage and uid
+        // must always remain owned by the real loader process.
         bridgedApplicationInfo.dataDir = hostInfo.dataDir;
         bridgedApplicationInfo.uid = hostInfo.uid;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -47,19 +55,18 @@ final class GameContextBridge extends ContextWrapper {
     @Override public ClassLoader getClassLoader() { return gameContext.getClassLoader(); }
 
     @Override public PackageManager getPackageManager() {
-        return useHostIdentity() ? hostContext.getPackageManager() : gameContext.getPackageManager();
+        return useHostIdentityForCaller() ? hostContext.getPackageManager() : gameContext.getPackageManager();
     }
 
     /**
-     * Unity needs the target package during its native bootstrap. Once libil2cpp is
-     * mapped, game-managed code is running and Google Play/Firebase may create
-     * Binder clients. At that point the package name must match the loader UID.
+     * Unity and Mamo code see the target package. Google/Firebase/Play Games code
+     * sees the loader package, whose Linux uid is the actual Binder caller.
      */
     @Override public String getPackageName() {
-        return useHostIdentity() ? hostContext.getPackageName() : gameContext.getPackageName();
+        return useHostIdentityForCaller() ? hostContext.getPackageName() : gameContext.getPackageName();
     }
 
-    // Binder-facing attribution must always match the loader's real UID/package.
+    // Binder-facing attribution is always the loader package/uid.
     @Override public String getOpPackageName() { return hostContext.getOpPackageName(); }
 
     @Override public String getPackageCodePath() { return gameContext.getPackageCodePath(); }
@@ -67,13 +74,16 @@ final class GameContextBridge extends ContextWrapper {
 
     @Override public ApplicationInfo getApplicationInfo() {
         ApplicationInfo info = new ApplicationInfo(bridgedApplicationInfo);
-        if (useHostIdentity()) {
-            info.packageName = hostContext.getApplicationInfo().packageName;
+        if (useHostIdentityForCaller()) {
+            ApplicationInfo hostInfo = hostContext.getApplicationInfo();
+            info.packageName = hostInfo.packageName;
+            info.uid = hostInfo.uid;
+            info.dataDir = hostInfo.dataDir;
         }
         return info;
     }
 
-    /** Google/Firebase application-context calls always use the real loader identity. */
+    /** SDKs that intentionally switch to application context get real loader identity. */
     @Override public Context getApplicationContext() { return hostContext; }
 
     @Override public File getObbDir() { return hostContext.getObbDir(); }
@@ -97,23 +107,28 @@ final class GameContextBridge extends ContextWrapper {
     @Override public File getDatabasePath(String name) { return hostContext.getDatabasePath("game_" + safe(name)); }
     @Override public File getDir(String name, int mode) { return hostContext.getDir("game_" + safe(name), mode); }
 
-    private boolean useHostIdentity() {
-        if (postBootstrapIdentity) return true;
+    int getGoogleIdentityHits() {
+        return googleIdentityHits;
+    }
 
-        // Any Google Play request initiated by IL2CPP can only happen after this
-        // mapping exists. Cache the transition permanently once observed.
-        try (BufferedReader reader = new BufferedReader(new FileReader("/proc/self/maps"))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                if (line.contains("libil2cpp.so")) {
-                    postBootstrapIdentity = true;
-                    Log.i(TAG, "IL2CPP mapped: switching package identity to "
-                            + hostContext.getPackageName());
+    String getLastGoogleCaller() {
+        return lastGoogleCaller;
+    }
+
+    private boolean useHostIdentityForCaller() {
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        for (StackTraceElement frame : stack) {
+            String className = frame.getClassName();
+            for (String prefix : HOST_IDENTITY_CALLERS) {
+                if (className.startsWith(prefix)) {
+                    googleIdentityHits++;
+                    if (!className.equals(lastGoogleCaller)) {
+                        lastGoogleCaller = className;
+                        Log.i(TAG, "Host identity for Google caller: " + className);
+                    }
                     return true;
                 }
             }
-        } catch (Throwable error) {
-            Log.w(TAG, "Could not inspect /proc/self/maps; keeping Unity bootstrap identity", error);
         }
         return false;
     }
