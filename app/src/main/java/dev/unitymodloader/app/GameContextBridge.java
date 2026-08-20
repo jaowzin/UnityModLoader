@@ -11,10 +11,7 @@ import android.os.Build;
 
 import java.io.File;
 
-/**
- * Exposes the installed game's code/resources/native-library paths while keeping
- * writable app data and the imported OBB mirror inside UnityModLoader's sandbox.
- */
+/** Exposes Mamo code/resources while keeping loader-owned runtime state. */
 final class GameContextBridge extends ContextWrapper {
     private final Context gameContext;
     private final Context hostContext;
@@ -23,16 +20,13 @@ final class GameContextBridge extends ContextWrapper {
     GameContextBridge(Context gameContext, Context hostContext) {
         super(gameContext);
         this.gameContext = gameContext;
-
         Context appContext = hostContext.getApplicationContext();
         this.hostContext = appContext != null ? appContext : hostContext;
 
         ApplicationInfo gameInfo = gameContext.getApplicationInfo();
         ApplicationInfo hostInfo = this.hostContext.getApplicationInfo();
         bridgedApplicationInfo = new ApplicationInfo(gameInfo);
-
-        // The loader cannot write to another package's /data/user/... sandbox.
-        // Keep the game's source/native paths but redirect writable data to us.
+        bridgedApplicationInfo.packageName = hostInfo.packageName;
         bridgedApplicationInfo.dataDir = hostInfo.dataDir;
         bridgedApplicationInfo.uid = hostInfo.uid;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -40,126 +34,36 @@ final class GameContextBridge extends ContextWrapper {
         }
     }
 
-    @Override
-    public AssetManager getAssets() {
-        return gameContext.getAssets();
-    }
-
-    @Override
-    public Resources getResources() {
-        return gameContext.getResources();
-    }
-
-    @Override
-    public ClassLoader getClassLoader() {
-        return gameContext.getClassLoader();
-    }
-
-    @Override
-    public PackageManager getPackageManager() {
-        return gameContext.getPackageManager();
-    }
-
-    @Override
-    public String getPackageName() {
-        return gameContext.getPackageName();
-    }
-
-    @Override
-    public String getOpPackageName() {
-        // Binder-facing attribution must stay on the loader's real package/UID.
-        return hostContext.getOpPackageName();
-    }
-
-    @Override
-    public String getPackageCodePath() {
-        return gameContext.getPackageCodePath();
-    }
-
-    @Override
-    public String getPackageResourcePath() {
-        return gameContext.getPackageResourcePath();
-    }
-
-    @Override
-    public ApplicationInfo getApplicationInfo() {
-        return new ApplicationInfo(bridgedApplicationInfo);
-    }
-
-    @Override
-    public Context getApplicationContext() {
-        return this;
-    }
-
-    /**
-     * The real Mamo OBB is imported by Shizuku into the loader-owned OBB directory.
-     * Hosted Unity sees that mirror and never needs cross-UID access to Android/obb.
-     */
-    @Override
-    public File getObbDir() {
-        return hostContext.getObbDir();
-    }
-
-    @Override
-    public File[] getObbDirs() {
+    @Override public AssetManager getAssets() { return gameContext.getAssets(); }
+    @Override public Resources getResources() { return gameContext.getResources(); }
+    @Override public ClassLoader getClassLoader() { return gameContext.getClassLoader(); }
+    @Override public PackageManager getPackageManager() { return hostContext.getPackageManager(); }
+    @Override public String getPackageName() { return hostContext.getPackageName(); }
+    @Override public String getOpPackageName() { return hostContext.getOpPackageName(); }
+    @Override public String getPackageCodePath() { return gameContext.getPackageCodePath(); }
+    @Override public String getPackageResourcePath() { return gameContext.getPackageResourcePath(); }
+    @Override public ApplicationInfo getApplicationInfo() { return new ApplicationInfo(bridgedApplicationInfo); }
+    @Override public Context getApplicationContext() { return this; }
+    @Override public File getObbDir() { return hostContext.getObbDir(); }
+    @Override public File[] getObbDirs() {
         File primary = getObbDir();
         return primary == null ? new File[0] : new File[]{primary};
     }
-
-    @Override
-    public SharedPreferences getSharedPreferences(String name, int mode) {
+    @Override public SharedPreferences getSharedPreferences(String name, int mode) {
         return hostContext.getSharedPreferences("game_" + safe(name), mode);
     }
-
-    @Override
-    public boolean deleteSharedPreferences(String name) {
+    @Override public boolean deleteSharedPreferences(String name) {
         return hostContext.deleteSharedPreferences("game_" + safe(name));
     }
-
-    @Override
-    public File getFilesDir() {
-        return hostContext.getFilesDir();
-    }
-
-    @Override
-    public File getCacheDir() {
-        return hostContext.getCacheDir();
-    }
-
-    @Override
-    public File getCodeCacheDir() {
-        return hostContext.getCodeCacheDir();
-    }
-
-    @Override
-    public File getNoBackupFilesDir() {
-        return hostContext.getNoBackupFilesDir();
-    }
-
-    @Override
-    public File getDataDir() {
-        return hostContext.getDataDir();
-    }
-
-    @Override
-    public File getExternalFilesDir(String type) {
-        return hostContext.getExternalFilesDir(type);
-    }
-
-    @Override
-    public File getExternalCacheDir() {
-        return hostContext.getExternalCacheDir();
-    }
-
-    @Override
-    public File getDatabasePath(String name) {
-        return hostContext.getDatabasePath("game_" + safe(name));
-    }
-
-    @Override
-    public File getDir(String name, int mode) {
-        return hostContext.getDir("game_" + safe(name), mode);
-    }
+    @Override public File getFilesDir() { return hostContext.getFilesDir(); }
+    @Override public File getCacheDir() { return hostContext.getCacheDir(); }
+    @Override public File getCodeCacheDir() { return hostContext.getCodeCacheDir(); }
+    @Override public File getNoBackupFilesDir() { return hostContext.getNoBackupFilesDir(); }
+    @Override public File getDataDir() { return hostContext.getDataDir(); }
+    @Override public File getExternalFilesDir(String type) { return hostContext.getExternalFilesDir(type); }
+    @Override public File getExternalCacheDir() { return hostContext.getExternalCacheDir(); }
+    @Override public File getDatabasePath(String name) { return hostContext.getDatabasePath("game_" + safe(name)); }
+    @Override public File getDir(String name, int mode) { return hostContext.getDir("game_" + safe(name), mode); }
 
     private static String safe(String value) {
         if (value == null || value.isEmpty()) return "default";
