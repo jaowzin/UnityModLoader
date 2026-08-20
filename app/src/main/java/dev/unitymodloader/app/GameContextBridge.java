@@ -12,7 +12,7 @@ import android.os.Build;
 import java.io.File;
 
 /**
- * Exposes the installed game's code/resources/native-library paths while keeping
+ * Exposes the installed game's code/resources/native-library/OBB paths while keeping
  * writable app data inside UnityModLoader's own sandbox.
  */
 final class GameContextBridge extends ContextWrapper {
@@ -34,6 +34,7 @@ final class GameContextBridge extends ContextWrapper {
         // The loader cannot write to another package's /data/user/... sandbox.
         // Keep the game's source/native paths but redirect writable data to us.
         bridgedApplicationInfo.dataDir = hostInfo.dataDir;
+        bridgedApplicationInfo.uid = hostInfo.uid;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             bridgedApplicationInfo.deviceProtectedDataDir = hostInfo.deviceProtectedDataDir;
         }
@@ -66,7 +67,8 @@ final class GameContextBridge extends ContextWrapper {
 
     @Override
     public String getOpPackageName() {
-        return gameContext.getOpPackageName();
+        // Binder-facing attribution must stay on the loader's real package/UID.
+        return hostContext.getOpPackageName();
     }
 
     @Override
@@ -87,6 +89,20 @@ final class GameContextBridge extends ContextWrapper {
     @Override
     public Context getApplicationContext() {
         return this;
+    }
+
+    /**
+     * Unity expansion-file lookup must resolve to Android/obb/<target package>,
+     * not Android/obb/dev.unitymodloader.app.
+     */
+    @Override
+    public File getObbDir() {
+        return gameContext.getObbDir();
+    }
+
+    @Override
+    public File[] getObbDirs() {
+        return gameContext.getObbDirs();
     }
 
     @Override
