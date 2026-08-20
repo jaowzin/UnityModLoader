@@ -1,7 +1,6 @@
 package dev.unitymodloader.app;
 
 import android.app.Activity;
-import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
@@ -10,6 +9,7 @@ import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Environment;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -323,21 +323,30 @@ public final class MainActivity extends Activity {
         launchClean.setEnabled(true);
     }
 
+    @SuppressWarnings("deprecation")
     private String inspectTargetObb() {
         try {
-            Context target = createPackageContext(TARGET_PACKAGE, Context.CONTEXT_IGNORE_SECURITY);
-            File obbDir = target.getObbDir();
-            if (obbDir == null) return "OBB: diretório não retornado";
+            File obbDir = new File(Environment.getExternalStorageDirectory(),
+                    "Android/obb/" + TARGET_PACKAGE);
 
             File[] files = obbDir.listFiles((dir, name) -> name != null && name.endsWith(".obb"));
-            if (files == null || files.length == 0) {
-                return "OBB: não encontrado em " + obbDir.getAbsolutePath();
+            if (files == null) {
+                return "OBB: caminho " + obbDir.getAbsolutePath()
+                        + " • não foi possível listar com o UID do loader";
+            }
+            if (files.length == 0) {
+                return "OBB: nenhum .obb em " + obbDir.getAbsolutePath();
             }
 
             long total = 0L;
-            for (File file : files) total += Math.max(0L, file.length());
+            int readable = 0;
+            for (File file : files) {
+                total += Math.max(0L, file.length());
+                if (file.canRead()) readable++;
+            }
             return "OBB: " + files.length + " arquivo(s), "
                     + String.format(Locale.ROOT, "%.1f MB", total / 1048576.0)
+                    + " • legíveis " + readable + "/" + files.length
                     + "\n" + obbDir.getAbsolutePath();
         } catch (Throwable error) {
             return "OBB: erro ao verificar (" + error.getClass().getSimpleName() + ")";
