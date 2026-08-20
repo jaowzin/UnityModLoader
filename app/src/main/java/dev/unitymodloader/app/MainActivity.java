@@ -1,6 +1,7 @@
 package dev.unitymodloader.app;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageInfo;
@@ -18,11 +19,11 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.ScrollView;
-import android.widget.Space;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.util.List;
 import java.util.Locale;
 
@@ -66,7 +67,6 @@ public final class MainActivity extends Activity {
         Window window = getWindow();
         window.setStatusBarColor(BG);
         window.setNavigationBarColor(BG);
-
         setContentView(buildUi());
 
         SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
@@ -89,9 +89,7 @@ public final class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setPadding(dp(20), dp(18), dp(20), dp(30));
         root.setBackgroundColor(BG);
-        scroll.addView(root, new ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT));
+        scroll.addView(root);
 
         TextView overline = text("MAMO BALL // CTF MOD CORE", 12f, ACCENT, Typeface.BOLD);
         overline.setLetterSpacing(0.14f);
@@ -101,7 +99,7 @@ public final class MainActivity extends Activity {
         title.setPadding(0, dp(4), 0, 0);
         root.addView(title);
 
-        TextView subtitle = text("Loader IL2CPP dedicado • v0.7.5", 14f, MUTED, Typeface.NORMAL);
+        TextView subtitle = text("Loader IL2CPP dedicado • v0.7.8 OBB", 14f, MUTED, Typeface.NORMAL);
         subtitle.setPadding(0, dp(4), 0, dp(18));
         root.addView(subtitle);
 
@@ -128,7 +126,6 @@ public final class MainActivity extends Activity {
 
         gameName = text("Mamo Ball", 22f, TEXT, Typeface.BOLD);
         gameText.addView(gameName);
-
         TextView packageLine = text(TARGET_PACKAGE, 12f, MUTED, Typeface.NORMAL);
         packageLine.setPadding(0, dp(4), 0, 0);
         gameText.addView(packageLine);
@@ -140,13 +137,12 @@ public final class MainActivity extends Activity {
         gameTop.addView(statusBadge);
 
         progress = new ProgressBar(this);
-        progress.setIndeterminate(true);
         LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(dp(24), dp(24));
         progressParams.gravity = Gravity.CENTER_HORIZONTAL;
         progressParams.setMargins(0, dp(18), 0, dp(2));
         targetCard.addView(progress, progressParams);
 
-        details = text("Validando Mamo Ball 4.6.15…", 13f, MUTED, Typeface.NORMAL);
+        details = text("Validando Mamo Ball 4.6.15 e OBB…", 13f, MUTED, Typeface.NORMAL);
         details.setLineSpacing(0f, 1.18f);
         details.setPadding(0, dp(14), 0, 0);
         targetCard.addView(details);
@@ -159,24 +155,24 @@ public final class MainActivity extends Activity {
         LinearLayout modsCard = card();
         modsCard.setOrientation(LinearLayout.VERTICAL);
         modsCard.setBackground(roundRect(CARD_ALT, 22, STROKE, 1));
-        root.addView(modsCard, matchWrap(0));
+        root.addView(modsCard);
 
         superKickSwitch = addModRow(
                 modsCard,
                 "Super Chute ×2",
-                "Duplica a força entregue ao BallController.Kick sem alterar a direção do chute.",
+                "Duplica a força entregue ao BallController.Kick.",
                 "BallController.Kick • RVA 0x2C9AC24",
                 false);
 
         superSpeedSwitch = addModRow(
                 modsCard,
                 "Super Velocidade ×2",
-                "Duplica playerSpeed e sprintSpeed depois da leitura ObscuredFloat.",
+                "Duplica playerSpeed e sprintSpeed após a leitura do valor do jogo.",
                 "PlayerController.ApplyJoystickState • RVA 0x2CCAFC4",
                 true);
 
         TextView safety = text(
-                "Identidade loader-only: Activity e Application Context expõem package/opPackage, ApplicationInfo e SigningInfo do Mamo Ball original instalado. Nenhuma alteração na ROM.",
+                "Fluxo original preservado: sem guest-force, sem skip-auth e sem spoof de assinatura. O hosted mode agora aponta o Unity para o OBB do Mamo Ball instalado.",
                 12f, MUTED, Typeface.NORMAL);
         safety.setPadding(0, dp(18), 0, 0);
         root.addView(safety);
@@ -195,20 +191,17 @@ public final class MainActivity extends Activity {
         cleanParams.height = dp(50);
         root.addView(launchClean, cleanParams);
 
-        recheck = button("Revalidar instalação", false);
+        recheck = button("Revalidar APK + OBB", false);
         recheck.setOnClickListener(v -> scanTarget());
         LinearLayout.LayoutParams recheckParams = matchWrap(dp(10));
         recheckParams.height = dp(46);
         root.addView(recheck, recheckParams);
 
-        Space spacer = new Space(this);
-        root.addView(spacer, new LinearLayout.LayoutParams(1, dp(20)));
-
         TextView footer = text("Unity 6000.0.59f2 • IL2CPP • arm64-v8a • alvo CTF 4.6.15",
                 11f, Color.rgb(96, 111, 132), Typeface.NORMAL);
         footer.setGravity(Gravity.CENTER);
+        footer.setPadding(0, dp(24), 0, 0);
         root.addView(footer);
-
         return scroll;
     }
 
@@ -233,9 +226,7 @@ public final class MainActivity extends Activity {
         row.addView(copy, new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f));
 
-        TextView title = text(titleValue, 18f, TEXT, Typeface.BOLD);
-        copy.addView(title);
-
+        copy.addView(text(titleValue, 18f, TEXT, Typeface.BOLD));
         TextView desc = text(description, 13f, MUTED, Typeface.NORMAL);
         desc.setPadding(0, dp(4), dp(12), 0);
         copy.addView(desc);
@@ -257,8 +248,7 @@ public final class MainActivity extends Activity {
         progress.setVisibility(View.VISIBLE);
         statusBadge.setText("CHECKING");
         statusBadge.setTextColor(MUTED);
-        statusBadge.setBackground(roundRect(Color.rgb(27, 36, 51), 999, STROKE, 1));
-        details.setText("Validando Mamo Ball instalado…");
+        details.setText("Validando Mamo Ball instalado e procurando OBB…");
         launchModded.setEnabled(false);
         launchClean.setEnabled(false);
         recheck.setEnabled(false);
@@ -276,8 +266,6 @@ public final class MainActivity extends Activity {
         if (result.isEmpty()) {
             statusBadge.setText("NOT FOUND");
             statusBadge.setTextColor(Color.rgb(255, 125, 125));
-            statusBadge.setBackground(roundRect(Color.rgb(54, 27, 32), 999,
-                    Color.rgb(98, 43, 51), 1));
             details.setText("Mamo Ball não foi encontrado ou a instalação não parece Unity.\n"
                     + TARGET_PACKAGE);
             return;
@@ -299,7 +287,8 @@ public final class MainActivity extends Activity {
             @SuppressWarnings("deprecation")
             PackageInfo info = getPackageManager().getPackageInfo(TARGET_PACKAGE, 0);
             if (info.versionName != null) installedVersion = info.versionName;
-        } catch (Throwable ignored) {}
+        } catch (Throwable ignored) {
+        }
 
         boolean profileOk = GameProfileManager.prepare(this, targetGame, targetBackend);
         boolean backendOk = detection.getBackend() == DetectionResult.Backend.UNITY_IL2CPP
@@ -307,6 +296,7 @@ public final class MainActivity extends Activity {
                 && detection.getArchitectures().contains("arm64-v8a");
         boolean versionOk = SUPPORTED_VERSION.equals(installedVersion);
         boolean supported = backendOk && versionOk;
+        String obbStatus = inspectTargetObb();
 
         statusBadge.setText(supported ? "READY" : versionOk ? "UNSUPPORTED" : "VERSION");
         statusBadge.setTextColor(supported ? GREEN : Color.rgb(255, 184, 105));
@@ -317,7 +307,7 @@ public final class MainActivity extends Activity {
                 1));
 
         details.setText(String.format(Locale.ROOT,
-                "Versão instalada: %s%s\nBackend: %s\nArquitetura: %s\nAPKs: %d\nPerfil do loader: %s\nCore: %s",
+                "Versão instalada: %s%s\nBackend: %s\nArquitetura: %s\nAPKs: %d\n%s\nPerfil: %s\nCore: %s",
                 installedVersion,
                 versionOk ? " ✓" : " • esperado " + SUPPORTED_VERSION,
                 backendName(detection),
@@ -325,11 +315,33 @@ public final class MainActivity extends Activity {
                         ? "não detectada"
                         : String.join(", ", detection.getArchitectures()),
                 targetGame.getApkPaths().size(),
+                obbStatus,
                 profileOk ? "pronto" : "erro",
                 NativeBridge.coreVersion()));
 
         launchModded.setEnabled(supported && profileOk);
         launchClean.setEnabled(true);
+    }
+
+    private String inspectTargetObb() {
+        try {
+            Context target = createPackageContext(TARGET_PACKAGE, Context.CONTEXT_IGNORE_SECURITY);
+            File obbDir = target.getObbDir();
+            if (obbDir == null) return "OBB: diretório não retornado";
+
+            File[] files = obbDir.listFiles((dir, name) -> name != null && name.endsWith(".obb"));
+            if (files == null || files.length == 0) {
+                return "OBB: não encontrado em " + obbDir.getAbsolutePath();
+            }
+
+            long total = 0L;
+            for (File file : files) total += Math.max(0L, file.length());
+            return "OBB: " + files.length + " arquivo(s), "
+                    + String.format(Locale.ROOT, "%.1f MB", total / 1048576.0)
+                    + "\n" + obbDir.getAbsolutePath();
+        } catch (Throwable error) {
+            return "OBB: erro ao verificar (" + error.getClass().getSimpleName() + ")";
+        }
     }
 
     private void launchHosted() {
