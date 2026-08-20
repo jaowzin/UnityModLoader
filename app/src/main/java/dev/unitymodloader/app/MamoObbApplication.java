@@ -14,10 +14,9 @@ import java.io.File;
 /**
  * Hosted Application bridge for Mamo Ball.
  *
- * Writable storage and Binder attribution stay on the real loader package/UID,
- * while package/class/resource lookups used by in-process SDKs are resolved from
- * the installed Mamo Ball APK. This lets Firebase component discovery see the
- * target manifest without spoofing Binder identity.
+ * The process/package identity exposed to Android and Google Play services always
+ * stays on the real loader package. Target code/resources are still exposed to
+ * the hosted Unity runtime through the installed Mamo Ball context.
  */
 public final class MamoObbApplication extends Application {
     private static final String TAG = "UML.MamoApp";
@@ -39,12 +38,13 @@ public final class MamoObbApplication extends Application {
                     TARGET_PACKAGE,
                     Context.CONTEXT_INCLUDE_CODE | Context.CONTEXT_IGNORE_SECURITY
             );
-            Log.i(TAG, "Target Application bridge ready: " + targetContext.getPackageName());
-            logFirebaseDiscovery();
+            Log.i(TAG, "Target code/resource bridge ready: " + targetContext.getPackageName());
         } catch (Throwable error) {
             targetContext = null;
-            Log.e(TAG, "Could not create target Application context", error);
+            Log.e(TAG, "Could not create target context", error);
         }
+
+        logFirebaseDiscovery();
 
         File dir = super.getObbDir();
         if (dir != null && !dir.isDirectory()) {
@@ -52,39 +52,38 @@ public final class MamoObbApplication extends Application {
             dir.mkdirs();
         }
         Log.i(TAG, "Loader OBB mirror=" + (dir == null ? "null" : dir.getAbsolutePath()));
+        Log.i(TAG, "Binder identity package=" + super.getPackageName()
+                + "; opPackage=" + super.getOpPackageName());
     }
 
     @SuppressWarnings("deprecation")
     private void logFirebaseDiscovery() {
-        Context target = targetContext;
-        if (target == null) return;
         try {
-            ComponentName component = new ComponentName(TARGET_PACKAGE, FIREBASE_DISCOVERY);
-            Bundle meta = target.getPackageManager()
+            ComponentName component = new ComponentName(super.getPackageName(), FIREBASE_DISCOVERY);
+            Bundle meta = super.getPackageManager()
                     .getServiceInfo(component, PackageManager.GET_META_DATA).metaData;
             boolean messaging = meta != null && meta.containsKey(FIREBASE_MESSAGING_REGISTRAR);
-            Log.i(TAG, "Firebase ComponentDiscovery metadata: messaging=" + messaging);
+            Log.i(TAG, "Loader Firebase ComponentDiscovery metadata: messaging=" + messaging);
         } catch (Throwable error) {
-            Log.w(TAG, "Could not inspect Firebase ComponentDiscovery metadata", error);
+            Log.w(TAG, "Could not inspect loader Firebase ComponentDiscovery metadata", error);
         }
     }
 
     @Override
     public String getPackageName() {
-        Context target = targetContext;
-        return target != null ? target.getPackageName() : super.getPackageName();
+        // Never report a foreign package name from this UID to Binder-backed SDKs.
+        return super.getPackageName();
     }
 
     @Override
     public String getOpPackageName() {
-        // Never attribute Binder calls to the foreign package: real UID is the loader.
         return super.getOpPackageName();
     }
 
     @Override
     public PackageManager getPackageManager() {
-        Context target = targetContext;
-        return target != null ? target.getPackageManager() : super.getPackageManager();
+        // Firebase component metadata is mirrored into the loader manifest.
+        return super.getPackageManager();
     }
 
     @Override
@@ -107,7 +106,6 @@ public final class MamoObbApplication extends Application {
 
     @Override
     public File getObbDir() {
-        // The imported mirror must remain writable/readable by the loader UID.
         File dir = super.getObbDir();
         if (dir != null && !dir.isDirectory()) {
             //noinspection ResultOfMethodCallIgnored
