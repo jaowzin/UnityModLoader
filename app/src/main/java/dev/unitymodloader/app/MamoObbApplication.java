@@ -15,6 +15,7 @@ public final class MamoObbApplication extends Application {
     @Override
     public void onCreate() {
         super.onCreate();
+        CrashDiagnostics.install(this);
         File dir = getObbDir();
         Log.i(TAG, "Loader OBB mirror=" + (dir == null ? "null" : dir.getAbsolutePath()));
     }
