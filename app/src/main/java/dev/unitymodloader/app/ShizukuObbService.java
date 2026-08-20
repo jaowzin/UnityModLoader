@@ -12,8 +12,7 @@ import java.io.FileOutputStream;
 /** Runs under Shizuku shell/root identity and only exposes Mamo Ball OBB reads. */
 public final class ShizukuObbService extends IObbBridgeService.Stub {
     private static final String TAG = "UML.ShizukuOBB";
-    private static final File SOURCE_DIR = new File(
-            "/storage/emulated/0/Android/obb/com.alberun.mamoball");
+    private static final String PACKAGE = "com.alberun.mamoball";
 
     public ShizukuObbService() {
         Log.i(TAG, "created uid=" + Os.getuid());
@@ -26,14 +25,19 @@ public final class ShizukuObbService extends IObbBridgeService.Stub {
     @Override
     public String listMamoObb() {
         try {
-            File[] files = SOURCE_DIR.listFiles((dir, name) ->
+            File sourceDir = findReadableSourceDir();
+            if (sourceDir == null) {
+                return "ERROR\tNao foi possivel listar o OBB do Mamo com uid=" + Os.getuid();
+            }
+
+            File[] files = sourceDir.listFiles((dir, name) ->
                     name != null && name.endsWith(".obb"));
             if (files == null) {
-                return "ERROR\tNao foi possivel listar " + SOURCE_DIR.getAbsolutePath()
+                return "ERROR\tNao foi possivel listar " + sourceDir.getAbsolutePath()
                         + " com uid=" + Os.getuid();
             }
             if (files.length == 0) {
-                return "EMPTY\tNenhum .obb encontrado";
+                return "EMPTY\tNenhum .obb encontrado em " + sourceDir.getAbsolutePath();
             }
 
             StringBuilder out = new StringBuilder();
@@ -53,7 +57,9 @@ public final class ShizukuObbService extends IObbBridgeService.Stub {
         if (destination == null) return "ERROR\tDestino nulo";
         if (!isSafeObbName(fileName)) return "ERROR\tNome de OBB invalido";
 
-        File source = new File(SOURCE_DIR, fileName);
+        File sourceDir = findReadableSourceDir();
+        if (sourceDir == null) return "ERROR\tDiretorio OBB nao acessivel";
+        File source = new File(sourceDir, fileName);
         if (!source.isFile()) return "ERROR\tOBB nao encontrado: " + fileName;
 
         long copied = 0L;
@@ -67,10 +73,37 @@ public final class ShizukuObbService extends IObbBridgeService.Stub {
                 copied += read;
             }
             output.flush();
-            return "OK\t" + copied + "\tuid=" + Os.getuid();
+            return "OK\t" + copied + "\tuid=" + Os.getuid()
+                    + "\tsource=" + sourceDir.getAbsolutePath();
         } catch (Throwable error) {
             return "ERROR\t" + error.getClass().getSimpleName() + ": " + error.getMessage();
         }
+    }
+
+    private static File findReadableSourceDir() {
+        File[] candidates = Os.getuid() == 0
+                ? new File[]{
+                new File("/storage/emulated/0/Android/obb/" + PACKAGE),
+                new File("/sdcard/Android/obb/" + PACKAGE),
+                new File("/data/media/0/Android/obb/" + PACKAGE)
+        }
+                : new File[]{
+                new File("/storage/emulated/0/Android/obb/" + PACKAGE),
+                new File("/sdcard/Android/obb/" + PACKAGE)
+        };
+
+        for (File candidate : candidates) {
+            try {
+                File[] probe = candidate.listFiles();
+                if (probe != null) {
+                    Log.i(TAG, "Readable source=" + candidate.getAbsolutePath()
+                            + "; uid=" + Os.getuid());
+                    return candidate;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     private static boolean isSafeObbName(String value) {
