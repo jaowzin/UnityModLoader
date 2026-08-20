@@ -12,6 +12,7 @@ import android.util.Log;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 
 /**
  * Hosted Application bridge for Mamo Ball.
@@ -49,8 +50,9 @@ public final class MamoObbApplication extends Application {
             Log.e(TAG, "Could not create target context", error);
         }
 
-        installUnityActivityBridge();
         logFirebaseDiscovery();
+        initializeHostedFirebase();
+        installUnityActivityBridge();
 
         File dir = super.getObbDir();
         if (dir != null && !dir.isDirectory()) {
@@ -60,6 +62,124 @@ public final class MamoObbApplication extends Application {
         Log.i(TAG, "Loader OBB mirror=" + (dir == null ? "null" : dir.getAbsolutePath()));
         Log.i(TAG, "Binder identity package=" + super.getPackageName()
                 + "; opPackage=" + super.getOpPackageName());
+    }
+
+    /**
+     * Bring up the Java Firebase graph before Unity/IL2CPP reaches the Firebase
+     * C++ wrappers. In a normal APK FirebaseInitProvider does this during app
+     * startup. The hosted process instead loads Firebase classes/resources from
+     * the installed target APK while Android components belong to the loader, so
+     * we perform the equivalent initialization explicitly.
+     */
+    private void initializeHostedFirebase() {
+        Context target = targetContext;
+        if (target == null) {
+            Log.w(TAG, "Hosted Firebase bootstrap skipped: target context unavailable");
+            return;
+        }
+
+        try {
+            ClassLoader loader = target.getClassLoader();
+            if (loader == null) {
+                Log.e(TAG, "Hosted Firebase bootstrap failed: target ClassLoader is null");
+                return;
+            }
+            Thread.currentThread().setContextClassLoader(loader);
+
+            Class<?> optionsClass = Class.forName(
+                    "com.google.firebase.FirebaseOptions", true, loader);
+            Method fromResource = optionsClass.getMethod("fromResource", Context.class);
+            Object options = fromResource.invoke(null, this);
+            if (options == null) {
+                Log.e(TAG, "Hosted Firebase bootstrap failed: FirebaseOptions.fromResource returned null");
+                return;
+            }
+
+            Class<?> appClass = Class.forName("com.google.firebase.FirebaseApp", true, loader);
+            Object firebaseApp = null;
+            try {
+                firebaseApp = appClass.getMethod("getInstance").invoke(null);
+            } catch (Throwable missingDefault) {
+                Log.i(TAG, "No default FirebaseApp yet; creating hosted default instance");
+            }
+
+            if (firebaseApp == null) {
+                Method initializeApp = appClass.getMethod(
+                        "initializeApp", Context.class, optionsClass);
+                firebaseApp = initializeApp.invoke(null, this, options);
+            }
+            if (firebaseApp == null) {
+                Log.e(TAG, "Hosted Firebase bootstrap failed: FirebaseApp is null");
+                return;
+            }
+            Log.i(TAG, "Hosted FirebaseApp ready: " + firebaseApp);
+
+            preflightCrashlytics(loader);
+            preflightMessaging(loader);
+        } catch (Throwable error) {
+            Log.e(TAG, "Hosted Firebase bootstrap failed", unwrapReflection(error));
+        }
+    }
+
+    private void preflightCrashlytics(ClassLoader loader) {
+        try {
+            Class<?> crashClass = Class.forName(
+                    "com.google.firebase.crashlytics.FirebaseCrashlytics", true, loader);
+            Object crashlytics = crashClass.getMethod("getInstance").invoke(null);
+            if (crashlytics == null) {
+                Log.e(TAG, "Hosted Firebase preflight: Crashlytics instance is NULL");
+                return;
+            }
+
+            Field coreField = crashClass.getDeclaredField("core");
+            coreField.setAccessible(true);
+            Object core = coreField.get(crashlytics);
+            if (core == null) {
+                Log.e(TAG, "Hosted Firebase preflight: Crashlytics.core is NULL");
+                return;
+            }
+
+            Object arbiter = null;
+            try {
+                Field arbiterField = core.getClass().getDeclaredField("dataCollectionArbiter");
+                arbiterField.setAccessible(true);
+                arbiter = arbiterField.get(core);
+            } catch (Throwable error) {
+                Log.w(TAG, "Hosted Firebase preflight: could not inspect dataCollectionArbiter",
+                        unwrapReflection(error));
+            }
+
+            Log.i(TAG, "Hosted Firebase preflight: Crashlytics.core="
+                    + core.getClass().getName()
+                    + "; dataCollectionArbiter="
+                    + (arbiter == null ? "NULL" : arbiter.getClass().getName()));
+        } catch (Throwable error) {
+            Log.e(TAG, "Hosted Firebase preflight: Crashlytics unavailable",
+                    unwrapReflection(error));
+        }
+    }
+
+    private void preflightMessaging(ClassLoader loader) {
+        try {
+            Class<?> messagingClass = Class.forName(
+                    "com.google.firebase.messaging.FirebaseMessaging", true, loader);
+            Object messaging = messagingClass.getMethod("getInstance").invoke(null);
+            Log.i(TAG, "Hosted Firebase preflight: Messaging="
+                    + (messaging == null ? "NULL" : messaging.getClass().getName()));
+        } catch (Throwable error) {
+            Log.e(TAG, "Hosted Firebase preflight: Messaging unavailable",
+                    unwrapReflection(error));
+        }
+    }
+
+    private static Throwable unwrapReflection(Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null
+                && (current instanceof java.lang.reflect.InvocationTargetException
+                || current instanceof ExceptionInInitializerError)) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     /**
