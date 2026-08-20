@@ -11,7 +11,7 @@ import android.os.Build;
 
 import java.io.File;
 
-/** Exposes Mamo code/resources while keeping loader-owned runtime state. */
+/** Exposes Mamo code/resources while keeping loader-owned writable runtime state. */
 final class GameContextBridge extends ContextWrapper {
     private final Context gameContext;
     private final Context hostContext;
@@ -26,7 +26,9 @@ final class GameContextBridge extends ContextWrapper {
         ApplicationInfo gameInfo = gameContext.getApplicationInfo();
         ApplicationInfo hostInfo = this.hostContext.getApplicationInfo();
         bridgedApplicationInfo = new ApplicationInfo(gameInfo);
-        bridgedApplicationInfo.packageName = hostInfo.packageName;
+
+        // Unity bootstrap expects the target package/application metadata, but any
+        // writable path and the Linux uid must remain owned by the loader process.
         bridgedApplicationInfo.dataDir = hostInfo.dataDir;
         bridgedApplicationInfo.uid = hostInfo.uid;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -37,13 +39,25 @@ final class GameContextBridge extends ContextWrapper {
     @Override public AssetManager getAssets() { return gameContext.getAssets(); }
     @Override public Resources getResources() { return gameContext.getResources(); }
     @Override public ClassLoader getClassLoader() { return gameContext.getClassLoader(); }
-    @Override public PackageManager getPackageManager() { return hostContext.getPackageManager(); }
-    @Override public String getPackageName() { return hostContext.getPackageName(); }
+
+    // Local Unity/package discovery must see Mamo Ball.
+    @Override public PackageManager getPackageManager() { return gameContext.getPackageManager(); }
+    @Override public String getPackageName() { return gameContext.getPackageName(); }
+
+    // Binder-facing attribution must always match the loader's real UID/package.
     @Override public String getOpPackageName() { return hostContext.getOpPackageName(); }
+
     @Override public String getPackageCodePath() { return gameContext.getPackageCodePath(); }
     @Override public String getPackageResourcePath() { return gameContext.getPackageResourcePath(); }
     @Override public ApplicationInfo getApplicationInfo() { return new ApplicationInfo(bridgedApplicationInfo); }
-    @Override public Context getApplicationContext() { return this; }
+
+    /**
+     * SDKs that intentionally switch to the application context receive the real
+     * loader Application, whose package/opPackage match the process uid. This is
+     * important for Google Play services and other Binder-backed SDKs.
+     */
+    @Override public Context getApplicationContext() { return hostContext; }
+
     @Override public File getObbDir() { return hostContext.getObbDir(); }
     @Override public File[] getObbDirs() {
         File primary = getObbDir();
