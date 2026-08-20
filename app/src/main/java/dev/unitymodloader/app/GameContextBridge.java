@@ -8,6 +8,7 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.os.Build;
+import android.os.Environment;
 
 import java.io.File;
 
@@ -93,16 +94,19 @@ final class GameContextBridge extends ContextWrapper {
 
     /**
      * Unity expansion-file lookup must resolve to Android/obb/<target package>,
-     * not Android/obb/dev.unitymodloader.app.
+     * not Android/obb/dev.unitymodloader.app. Resolve the path locally instead of
+     * asking StorageManager with a foreign package name/Binder UID pair.
      */
+    @SuppressWarnings("deprecation")
     @Override
     public File getObbDir() {
-        return gameContext.getObbDir();
+        File external = Environment.getExternalStorageDirectory();
+        return new File(external, "Android/obb/" + gameContext.getPackageName());
     }
 
     @Override
     public File[] getObbDirs() {
-        return gameContext.getObbDirs();
+        return new File[]{getObbDir()};
     }
 
     @Override
