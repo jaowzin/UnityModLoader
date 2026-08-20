@@ -88,6 +88,9 @@ jobs:
         run: |
           mkdir -p dist
           cp build.log dist/build.log 2>/dev/null || true
+          printf 'run_id=%s\nrun_number=%s\nrun_attempt=%s\nsource_sha=%s\nbuild_outcome=%s\n' \
+            "$GITHUB_RUN_ID" "$GITHUB_RUN_NUMBER" "$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" "${{ steps.build.outcome }}" \
+            > dist/run.txt
           if [ -f UnityModLoader-latest.apk ]; then
             cp UnityModLoader-latest.apk dist/UnityModLoader-latest.apk
           else
