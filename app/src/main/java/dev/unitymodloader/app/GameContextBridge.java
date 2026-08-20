@@ -8,13 +8,12 @@ import android.content.pm.PackageManager;
 import android.content.res.AssetManager;
 import android.content.res.Resources;
 import android.os.Build;
-import android.os.Environment;
 
 import java.io.File;
 
 /**
- * Exposes the installed game's code/resources/native-library/OBB paths while keeping
- * writable app data inside UnityModLoader's own sandbox.
+ * Exposes the installed game's code/resources/native-library paths while keeping
+ * writable app data and the imported OBB mirror inside UnityModLoader's sandbox.
  */
 final class GameContextBridge extends ContextWrapper {
     private final Context gameContext;
@@ -93,20 +92,18 @@ final class GameContextBridge extends ContextWrapper {
     }
 
     /**
-     * Unity expansion-file lookup must resolve to Android/obb/<target package>,
-     * not Android/obb/dev.unitymodloader.app. Resolve the path locally instead of
-     * asking StorageManager with a foreign package name/Binder UID pair.
+     * The real Mamo OBB is imported by Shizuku into the loader-owned OBB directory.
+     * Hosted Unity sees that mirror and never needs cross-UID access to Android/obb.
      */
-    @SuppressWarnings("deprecation")
     @Override
     public File getObbDir() {
-        File external = Environment.getExternalStorageDirectory();
-        return new File(external, "Android/obb/" + gameContext.getPackageName());
+        return hostContext.getObbDir();
     }
 
     @Override
     public File[] getObbDirs() {
-        return new File[]{getObbDir()};
+        File primary = getObbDir();
+        return primary == null ? new File[0] : new File[]{primary};
     }
 
     @Override
