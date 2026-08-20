@@ -205,7 +205,7 @@ std::string setSuperSpeed(bool enabled) {
 extern "C"
 JNIEXPORT jstring JNICALL
 Java_dev_unitymodloader_app_NativeBridge_coreVersion(JNIEnv* env, jclass) {
-    return env->NewStringUTF("umlcore/0.7.8-mamoball-obb");
+    return env->NewStringUTF("umlcore/0.7.9-mamoball-shizuku-obb");
 }
 
 extern "C"
