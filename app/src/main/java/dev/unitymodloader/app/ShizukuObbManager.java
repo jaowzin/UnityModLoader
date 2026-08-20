@@ -24,6 +24,7 @@ final class ShizukuObbManager {
     private final Listener listener;
     private IObbBridgeService service;
     private boolean pendingImport;
+    private boolean pendingCrashLog;
 
     private final Shizuku.OnRequestPermissionResultListener permissionListener =
             (requestCode, grantResult) -> {
@@ -42,6 +43,7 @@ final class ShizukuObbManager {
             service = IObbBridgeService.Stub.asInterface(binder);
             Log.i(TAG, "UserService connected: " + name);
             if (pendingImport) importNow();
+            if (pendingCrashLog) collectCrashLogNow();
         }
 
         @Override
@@ -84,6 +86,25 @@ final class ShizukuObbManager {
         }
     }
 
+    /**
+     * Silent diagnostic path used after a previous native crash. It never asks for
+     * permission on its own; it only runs when the user already authorized Shizuku.
+     */
+    void collectCrashLogIfAvailable() {
+        try {
+            if (!Shizuku.pingBinder() || Shizuku.isPreV11()) return;
+            if (Shizuku.checkSelfPermission() != PackageManager.PERMISSION_GRANTED) return;
+            if (CrashDiagnostics.getLastCrashPid(activity) <= 0) return;
+
+            pendingCrashLog = true;
+            if (service != null) collectCrashLogNow();
+            else Shizuku.bindUserService(userServiceArgs(), serviceConnection);
+        } catch (Throwable error) {
+            Log.w(TAG, "Could not start Shizuku crash collection", error);
+            pendingCrashLog = false;
+        }
+    }
+
     void importMamoObb() {
         pendingImport = true;
         try {
@@ -116,7 +137,7 @@ final class ShizukuObbManager {
         ).daemon(false)
                 .processNameSuffix("mamo_obb")
                 .tag("mamoball-obb")
-                .version(1);
+                .version(2);
     }
 
     private void bindAndImport() {
@@ -132,6 +153,30 @@ final class ShizukuObbManager {
             report("Falha ao iniciar UserService: " + error.getClass().getSimpleName()
                     + ": " + String.valueOf(error.getMessage()), false);
         }
+    }
+
+    private void collectCrashLogNow() {
+        pendingCrashLog = false;
+        final IObbBridgeService active = service;
+        if (active == null) return;
+
+        final int pid = CrashDiagnostics.getLastCrashPid(activity);
+        final long timestamp = CrashDiagnostics.getLastCrashTimestamp(activity);
+        if (pid <= 0) return;
+
+        new Thread(() -> {
+            try {
+                String result = active.readLoaderCrashLog(pid, timestamp);
+                if (result != null && result.startsWith("OK\t")) {
+                    Log.i(TAG, "Native crash logcat captured for pid=" + pid);
+                    CrashDiagnostics.appendPrivilegedCrashLog(activity, result);
+                } else {
+                    Log.w(TAG, "Native crash logcat unavailable: " + result);
+                }
+            } catch (Throwable error) {
+                Log.w(TAG, "Could not collect native crash logcat", error);
+            }
+        }, "mamoball-shizuku-crash").start();
     }
 
     private void importNow() {
