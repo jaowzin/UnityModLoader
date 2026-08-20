@@ -32,6 +32,7 @@ public final class MamoObbApplication extends Application {
     public void onCreate() {
         super.onCreate();
         CrashDiagnostics.install(this);
+        ShizukuCrashCollector.schedule(this);
 
         try {
             targetContext = super.createPackageContext(
