@@ -10,14 +10,12 @@ Starting a Gradle Daemon (subsequent builds will be faster)
 > Task :app:javaPreCompileDebug
 > Task :app:mergeDebugAssets
 > Task :app:compressDebugAssets
-> Task :app:checkDebugDuplicateClasses
 > Task :app:desugarDebugFileDependencies
+> Task :app:checkDebugDuplicateClasses
 > Task :app:parseDebugLocalResources
-> Task :app:mergeLibDexDebug
-> Task :app:generateDebugRFile
 > Task :app:checkDebugAarMetadata
+> Task :app:generateDebugRFile
 > Task :app:compileDebugKotlin NO-SOURCE
-> Task :app:mergeExtDexDebug
 
 > Task :app:compileDebugJavaWithJavac
 warning: unknown enum constant Scope.LIBRARY_GROUP_PREFIX
@@ -28,18 +26,23 @@ warning: unknown enum constant Scope.LIBRARY_GROUP_PREFIX
 warning: unknown enum constant Scope.LIBRARY_GROUP_PREFIX
 warning: unknown enum constant Scope.LIBRARY_GROUP_PREFIX
 warning: unknown enum constant Scope.LIBRARY_GROUP_PREFIX
+
+> Task :app:mergeExtDexDebug
+
+> Task :app:compileDebugJavaWithJavac
 Note: /home/runner/work/UnityModLoader/UnityModLoader/app/src/main/java/dev/unitymodloader/app/MainActivity.java uses or overrides a deprecated API.
 Note: Recompile with -Xlint:deprecation for details.
 7 warnings
 
 > Task :app:processDebugJavaRes NO-SOURCE
 > Task :app:mapDebugSourceSetPaths
+> Task :app:mergeLibDexDebug
 > Task :app:compileDebugNavigationResources
 > Task :app:createDebugCompatibleScreenManifests
 > Task :app:extractDeepLinksDebug
+> Task :app:processDebugMainManifest
 > Task :app:mergeDebugResources
 > Task :app:mergeDebugJavaResource
-> Task :app:processDebugMainManifest
 > Task :app:processDebugManifest
 > Task :app:configureCMakeDebug[arm64-v8a]
 > Task :app:buildCMakeDebug[arm64-v8a]
@@ -62,7 +65,7 @@ Note: Recompile with -Xlint:deprecation for details.
 > Task :app:packageDebug
 > Task :app:createDebugApkListingFileRedirect
 > Task :app:assembleDebug
-gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787267754954.json
+gradle/actions: Writing build results to /home/runner/work/_temp/.gradle-actions/build-results/build-1787268331791.json
 
 [Incubating] Problems report is available at: file:///home/runner/work/UnityModLoader/UnityModLoader/build/reports/problems/problems-report.html
 
